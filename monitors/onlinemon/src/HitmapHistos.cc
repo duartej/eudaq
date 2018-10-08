@@ -108,7 +108,7 @@ HitmapHistos::HitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
     sprintf(out, "%s %i ToT Single Pixels", _sensor.c_str(), _id);
     sprintf(out2, "h_totsingle_%s_%i", _sensor.c_str(), _id);
     if (p.is_USBPIXI4 || p.is_RD53A) {
-      _totSingle = new TH1I(out2, out, 16, 0, 15);
+      _totSingle = new TH1I(out2, out, 16, 0, 16);
       SetHistoAxisLabelx(_totSingle, "ToT [ToT code]");
     } else if (p.is_DEPFET) {
       _totSingle = new TH1I(out2, out, 255, -127, 127);
