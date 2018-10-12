@@ -91,12 +91,13 @@ namespace eudaq
                     // do things as modify the BORE with the new tags
                     theconfig = new eudaq::Configuration("cfg_offline");
                     theconfig->Load(flayout,"bdaq53a.Producer");
-                    theconfig_todelete=false;
+                    theconfig_todelete=true;
                 }
                 else
                 {
                     // -- Try to obtain it from the config file 
                     theconfig = const_cast<eudaq::Configuration*>(&cnf);
+                    theconfig->SetSection("bdaq53a.Producer");
                 }
                 // Extract board id
                 const unsigned int board_id = bore.GetTag("board", -999);
