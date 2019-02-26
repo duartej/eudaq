@@ -67,10 +67,13 @@ namespace eudaq
         public:
             enum LAYOUT_FLAVOUR 
             {
-                L100X25 = 0,
-                L25x100 = 0,
-                L50X50  = 1,
-                DEFAULT = 1,
+                // Planar punch-trhough and 3D
+                L25x100_PT     = 0,
+                L25x100_NOBIAS = 1,
+                // 3D 25x100, mapping equivalent to PT
+                L25x100_3D     = 2,
+                L50x50  = 3,
+                DEFAULT = 3,
                 _UNDF
             };
 
@@ -122,7 +125,8 @@ namespace eudaq
                     EUDAQ_INFO("[BDAQ53A::New Kintex KC705 board added. Board ID: "+
                             std::to_string(board_id)+", layout:"+
                             std::to_string(int(get_x_pitch(board_id)*1e3))+
-                            "x"+std::to_string(int(get_y_pitch(board_id)*1e3))+" um]");
+                            "x"+std::to_string(int(get_y_pitch(board_id)*1e3))+" um2"+
+                            get_bias_structure(_pixel_layout[board_id])+"]" );
                 }
             }
             
@@ -387,13 +391,36 @@ namespace eudaq
             {
                 float xpitch = -1;
                 float ypitch = -1;
+                LAYOUT_FLAVOUR pixel_layout = LAYOUT_FLAVOUR::DEFAULT;
+
                 // RD53A layout is 50x50, if 100x25 --> 200 columns
-                if(layout == "100x25" || layout == "25x100")
+                if(layout.find("100x25") != std::string::npos || layout.find("25x100") != std::string::npos)
                 {
                     //_sensor_layout[board_id] = LAYOUT_FLAVOUR::L100X25;
                     // the functors to map the roc to pixels
                     get_pixel_column[board_id] = _column_map_100x50;
-                    get_pixel_row[board_id]    = _row_map_100x50;
+                    // two different layouts: puch-trough or no-bias structure
+                    if(layout == "100x25_NOBIAS" || layout == "25x100_NOBIAS")
+                    {
+                        pixel_layout = LAYOUT_FLAVOUR::L25x100_NOBIAS;
+                        get_pixel_row[board_id]    = _row_map_100x50_nobias;
+                    }
+                    else if(layout == "100x25_PT" || layout == "25x100_PT" )
+                    {
+                        pixel_layout = LAYOUT_FLAVOUR::L25x100_PT;
+                        get_pixel_row[board_id]    = _row_map_100x50_punchthrough;
+                    }
+                    else if(layout == "100x25_3D" || layout == "25x100_3D" )
+                    {
+                        pixel_layout = LAYOUT_FLAVOUR::L25x100_3D;
+                        get_pixel_row[board_id]    = _row_map_100x50_punchthrough;
+                    }
+                    else
+                    {
+                        EUDAQ_ERROR("You must specify the BIAS STRUCTURE (planar) or 3D-type for the 25x100 layout: '"
+                                +layout+"_<PT|NOBIAS|3D>'");
+                        exit(-1);
+                    }
                     xpitch=0.100;
                     ypitch=0.025;
                 }
@@ -407,9 +434,7 @@ namespace eudaq
                 }
                 else
                 {
-                    EUDAQ_ERROR("Unexistent layout '"+layout+"'");
-                    std::cout << "BDAQ53A ERROR: Unexistent sensor layout read from config '" 
-                        << layout << "'" << std::endl;
+                    EUDAQ_ERROR("Unexistent sensor layout '"+layout+"'");
                     exit(-1);
                 }
 
@@ -418,6 +443,8 @@ namespace eudaq
                 // Set the number of columsn/rows
                 _sensor_colrows[board_id] = std::pair<unsigned int,unsigned int>(
                         int(RD53A_XSIZE/xpitch),int(RD53A_YSIZE/ypitch));
+                // And the layout flavour (with the bias structure included)
+                _pixel_layout[board_id] = pixel_layout;
             }
 
             // -- The pixel size
@@ -438,13 +465,21 @@ namespace eudaq
             {
                 return _sensor_colrows.at(board_id).second;
             }
-            // The mapping from ROC to 100x25 pixel
+
+            // The mapping from ROC to 100x25 pixel (no-bias and punch-trough are equivalent)
             static int _column_map_100x50(unsigned int column_roc, unsigned int row_roc)
             {
                 return int(floor(column_roc/2.0));
             }
 
-            static int _row_map_100x50(unsigned int column_roc, unsigned int row_roc)
+            // The mapping from ROC to 100x25 pixel (no-bias)
+            static int _row_map_100x50_nobias(unsigned int column_roc, unsigned int row_roc)
+            {
+                return (2*row_roc+1)-(column_roc%2);
+            }
+
+            // The mapping from ROC to 100x25 pixel (punch through)
+            static int _row_map_100x50_punchthrough(unsigned int column_roc, unsigned int row_roc)
             {
                 return 2*row_roc+(column_roc%2);
             }
@@ -456,6 +491,27 @@ namespace eudaq
             static int _identity_row(unsigned int column_roc,unsigned int row_roc)
             {
                 return row_roc;
+            }
+
+            const std::string get_bias_structure(unsigned int board_id)
+            {
+                // Assuming the map _pixel_layout was already filled
+                if( _pixel_layout[board_id] == LAYOUT_FLAVOUR::L50x50 )
+                {
+                    return "";
+                }
+                else if( _pixel_layout[board_id] == LAYOUT_FLAVOUR::L25x100_NOBIAS )
+                {
+                    return ", PLANAR with NO bias structure";
+                }
+                else if( _pixel_layout[board_id] == LAYOUT_FLAVOUR::L25x100_PT )
+                {
+                    return ", PLANAR with bias structure: Punch-through";
+                }
+                else if( _pixel_layout[board_id] == LAYOUT_FLAVOUR::L25x100_3D )
+                {
+                    return ", 3D-sensor";
+                }
             }
 
             // The mapping function
@@ -476,6 +532,8 @@ namespace eudaq
             std::map<unsigned int,std::pair<float,float> > _sensor_xypitch;
             // the sensor geometry
             std::map<unsigned int,std::pair<unsigned int,unsigned int> > _sensor_colrows;
+            // The pixel geometry layout (and the bias structure, relevant for the ROC mapping)
+            std::map<unsigned int,LAYOUT_FLAVOUR> _pixel_layout;
 
             // The constructor can be private, only one static instance is created
             // The DataConverterPlugin constructor must be passed the event type
