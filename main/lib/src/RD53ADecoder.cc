@@ -75,14 +75,9 @@ RD53ADecoder::RD53ADecoder(const RawDataEvent::data_t & raw_data) :
                 uint32_t col = (multicol*8+pixid)+4*side;
                 const uint32_t tot = (data_word >> (pixid*4)) & 0xF;
                 if( (col < RD53A_NCOLS && row < RD53A_NROWS) \
-                        && tot != 0 && tot != 15 )
+                        && tot >= 0 && tot != 15 )
                 {
                     _hits[_n_event_headers].push_back({ {col,row,tot} });
-                }
-                // XXX TO BE DEPRECATED 
-                if(tot==255)
-                {
-                    EUDAQ_ERROR("ToT 255 for a pixel. Please CONTACT DEVELOPER.");
                 }
             }
         }
