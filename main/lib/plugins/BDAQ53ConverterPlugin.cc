@@ -126,7 +126,7 @@ namespace eudaq
                             std::to_string(board_id)+", layout:"+
                             std::to_string(int(get_x_pitch(board_id)*1e3))+
                             "x"+std::to_string(int(get_y_pitch(board_id)*1e3))+" um2"+
-                            get_bias_structure(_pixel_layout[board_id])+"]" );
+                            get_bias_structure(board_id)+"]" );
                 }
             }
             
