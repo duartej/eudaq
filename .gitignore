@@ -4,6 +4,12 @@ bin/*
 # Ignore libraries:
 lib/*
 
+# IGnore build
+build
+
+# Ignoere incle
+include
+
 
 # Ignore data files:
 data/*
