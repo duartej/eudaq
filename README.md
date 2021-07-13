@@ -1,7 +1,7 @@
 EUDAQ version 1
 =======
 
-[![Build Status](https://travis-ci.org/eudaq/eudaq.svg?branch=v1.x-dev)](https://travis-ci.org/eudaq/eudaq) 
+[![Build Status](https://travis-ci.com/eudaq/eudaq.svg?branch=v1.x-dev)](https://travis-ci.com/eudaq/eudaq) 
 [![Build status](https://ci.appveyor.com/api/projects/status/n3tq45kkupyvjihg/branch/v1.x-dev?svg=true)](https://ci.appveyor.com/project/eudaq/eudaq/branch/v1.x-dev)
 
 **Note: EUDAQ version 1.10 requires a C++14 compliant compiler.**
@@ -48,6 +48,10 @@ EUDAQ requires a C++14 compliant compiler.
 We recommend a gcc version 5.0 or later. 
 Qt version 5 or higher is required to build GUIs. 
 ROOT 6 is required for the Online Monitor GUI.
+
+#### Environments
+The ROOT environment has to be set for a successful installation. 
+Additionally, the installation shpuld work when using the standard system Python. Sometimes there can be a conflict if using a seperate installation of Python like Anaconda or Miniconda.
 
 ### For specific Producers and Components
 
@@ -125,8 +129,8 @@ make install
 
 #### Visual Studio for compiling (MSVC)
 
-- The recommended windows compiler is MSVC (Microsoft Visual C++) like Visual Studio 2015 and later
-- Download Visual Studio Express Desktop (e.g. 2017 Version)
+- The recommended windows compiler is MSVC (Microsoft Visual C++) like Visual Studio 2019 and later (earlier versions up to 2015 still work but do not support ROOT6)
+- Download Visual Studio Express Desktop (e.g. 2019 Version)
 
 #### Compiling using cmake syntax
 

@@ -155,8 +155,9 @@ virtual bool GetStandardSubEvent(StandardEvent& sev, eudaq::Event const & ev) co
     	}
 
 	for(auto channel: boardChannels.at(boardID)){
+		auto sensorID = 20 + channel;
 		std::string planeName = "USBPIX_GEN3_BOARD_" + to_string(boardID);
-		auto pair = std::make_pair(channel, StandardPlane(channel, EVENT_TYPE, planeName));
+		auto pair = std::make_pair(channel, StandardPlane(sensorID, EVENT_TYPE, planeName));
 		pair.second.SetSizeZS(80, 336, 0, 16, StandardPlane::FLAG_DIFFCOORDS | StandardPlane::FLAG_ACCUMULATE);
 		StandardPlaneMap.insert(pair);
 	}
@@ -176,7 +177,14 @@ virtual unsigned GetTriggerID(const Event & ev) const {
 	//The trigger id is always the first 4 words in each event's data block
 	//we only need the first 24 bit though! (the most significant 8 will be zeroes)
 	auto evRaw = dynamic_cast<RawDataEvent const &>(ev);
-	auto data = evRaw.GetBlock(0);
+        std::vector<unsigned char> data;
+	try {
+		data = evRaw.GetBlock(0);
+	}
+	catch(std::out_of_range) {
+		std::cout << "Block with trigger ID missing for USBpix board" << std::endl;
+		return 0;
+	}
         uint32_t i =( static_cast<uint32_t>(data[2]) << 16 ) |
                     ( static_cast<uint32_t>(data[1]) << 8 ) |
                     ( static_cast<uint32_t>(data[0]) );
