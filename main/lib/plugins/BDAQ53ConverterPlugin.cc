@@ -47,6 +47,7 @@ using eutelescope::EUTELESCOPE;
 #include <memory>
 #include <functional>
 #include <istream>
+#include <cmath>
 
 
 namespace eudaq 
@@ -469,7 +470,7 @@ namespace eudaq
             // The mapping from ROC to 100x25 pixel (no-bias and punch-trough are equivalent)
             static int _column_map_100x50(unsigned int column_roc, unsigned int row_roc)
             {
-                return int(floor(column_roc/2.0));
+                return int(std::floor(column_roc/2.0));
             }
 
             // The mapping from ROC to 100x25 pixel (no-bias)
@@ -512,6 +513,9 @@ namespace eudaq
                 {
                     return ", 3D-sensor";
                 }
+
+                // Should be here?
+                return "UNDEFINED";
             }
 
             // The mapping function
