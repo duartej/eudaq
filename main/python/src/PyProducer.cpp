@@ -25,6 +25,7 @@ class PyProducer : public eudaq::Producer {
       m_run(0), 
       m_evt(0), 
       m_board_id(boardID), 
+      m_number_of_chips(0), 
       m_config(NULL) 
     {}
 
@@ -32,11 +33,17 @@ class PyProducer : public eudaq::Producer {
     	std::cout << "[PyProducer] GetRunNumber "<< m_run<< std::endl;
     	return m_run;
     }
+    
+    void SetNumberOfChips(unsigned int n) {
+    	std::cout << "[PyProducer] "<< n << " chips being read by the Board" << std::endl;
+        m_number_of_chips = n;
+    }
   
-    void SendEvent(uint8_t* data, size_t size) {
+    void SendEvent(unsigned int chip_id, uint8_t* data, size_t size) {
       RawDataEvent ev(m_name, m_run, m_evt++);
       ev.AddBlock(0, data, size);
       ev.SetTag("board",m_board_id);
+      ev.SetTag("chip_id",chip_id);
       eudaq::DataSender::SendEvent(ev);
     }
 
@@ -160,6 +167,7 @@ private:
   std::string m_name;
   unsigned m_run, m_evt;
   unsigned int m_board_id;
+  unsigned int m_number_of_chips;
   eudaq::Configuration * m_config;
 };
 
@@ -167,7 +175,7 @@ private:
 extern "C" {
   DLLEXPORT PyProducer* PyProducer_new(char *name, char *rcaddress,unsigned int board_id){return new PyProducer(std::string(name),std::string(rcaddress),board_id);}
   // functions for I/O
-  DLLEXPORT void PyProducer_SendEvent(PyProducer *pp, uint8_t* buffer, size_t size){pp->SendEvent(buffer,size);}
+  DLLEXPORT void PyProducer_SendEvent(PyProducer *pp, unsigned int chip_id, uint8_t* buffer, size_t size){pp->SendEvent(chip_id, buffer, size);}
   DLLEXPORT int PyProducer_GetConfigParameter(PyProducer *pp, char *item, char *buf, int buf_len){
     std::string value = pp->GetConfigParameter(std::string(item));
     if(value.empty()) // key not found
@@ -183,6 +191,8 @@ extern "C" {
   }
 
   DLLEXPORT unsigned int PyProducer_GetRunNumber(PyProducer *pp){return pp->GetRunNumber();}
+  
+  DLLEXPORT void PyProducer_SetNumberOfChips(PyProducer *pp, unsigned int n){return pp->SetNumberOfChips(n);}
 
   // functions to report on the current state of the producer
   DLLEXPORT bool PyProducer_IsConfiguring(PyProducer *pp){return pp->IsConfiguring();}

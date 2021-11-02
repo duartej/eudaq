@@ -189,6 +189,7 @@ namespace eudaq
                 // Trigger number is the same for all blocks (sensors)
                 uint32_t const trigger_number = GetTriggerID(ev);
                 const unsigned int board_id = ev_raw.GetTag("board",int());
+                const unsigned int chip_id = ev_raw.GetTag("chip_id",int());
                 // --- Get the pixel pitch X and Y 
                 const float x_pitch = get_x_pitch(board_id);
                 const float y_pitch = get_y_pitch(board_id);
@@ -197,7 +198,7 @@ namespace eudaq
                 if(static_cast<uint32_t>(trigger_number) == -1)
                 {
                     // Dummy plane
-                    StandardPlane plane(get_chip_id(ev_raw.GetID(0),board_id), EVENT_TYPE,plane_name);
+                    StandardPlane plane(get_chip_id(chip_id,board_id), EVENT_TYPE,plane_name);
                     plane.SetSizeZS(get_ncols(board_id),get_nrows(board_id),0,RD53A_MAX_TRG_ID,
                             StandardPlane::FLAG_DIFFCOORDS | StandardPlane::FLAG_ACCUMULATE);
                     sev.AddPlane(plane);
@@ -209,13 +210,10 @@ namespace eudaq
                 //    event_status |= E_EXT_TRG;
                 //}
 
-                // [JDC] each block could corresponds to one sensor attach to 
-                //       the card. So far, we are using only 1-sensor, but it 
-                //       could be extended at some point
                 for(size_t i = 0; i < ev_raw.NumBlocks(); ++i) 
                 {
                     // Create a standard plane representing one sensor plane
-                    StandardPlane plane(get_chip_id(ev_raw.GetID(i),board_id), EVENT_TYPE,plane_name);
+                    StandardPlane plane(get_chip_id(chip_id,board_id), EVENT_TYPE,plane_name);
                     // FIXME: Understand what is the meaning of those flags!! 
                     plane.SetSizeZS(get_ncols(board_id),get_nrows(board_id),0,RD53A_MAX_TRG_ID,
                             StandardPlane::FLAG_DIFFCOORDS | StandardPlane::FLAG_ACCUMULATE);
@@ -242,6 +240,7 @@ namespace eudaq
             }
 
 #if USE_LCIO && USE_EUTELESCOPE
+            /// FIXME:: READING MULTIPLE SSC NOT IMPLEMENTED IN EUTELESCOPE
             // This is where the conversion to LCIO is done
             virtual lcio::LCEvent * GetLCIOEvent(const Event * /*ev*/) const 
             {

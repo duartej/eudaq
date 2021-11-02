@@ -79,7 +79,8 @@ class PyRunControl(object):
         return lib.PyRunControl_AllOk(c_void_p(self.obj))
 
 
-lib.PyProducer_SendEvent.argtypes = [c_void_p, POINTER(c_uint8), c_size_t]
+lib.PyProducer_SendEvent.argtypes = [c_void_p, c_uint, POINTER(c_uint8), c_size_t ]
+lib.PyProducer_SetNumberOfChips.argtypes = [c_void_p, c_uint]
 
 
 class PyProducer(object):
@@ -88,12 +89,15 @@ class PyProducer(object):
         self.obj = lib.PyProducer_new(create_string_buffer(name),
                                       create_string_buffer(rcaddr), board_id)
 
-    def SendEvent(self, data):
+    def SendEvent(self, chip_id, data):
         data_p = data.ctypes.data_as(POINTER(c_uint8))
-        lib.PyProducer_SendEvent(c_void_p(self.obj), data_p, data.nbytes)
+        lib.PyProducer_SendEvent(c_void_p(self.obj), chip_id, data_p, data.nbytes)
 
     def GetRunNumber(self):
         return lib.PyProducer_GetRunNumber(c_void_p(self.obj))
+
+    def SetNumberOfChips(self,n):
+        lib.PyProducer_SetNumberOfChips(c_void_p(self.obj),n)
 
     def GetConfigParameter(self, item):
         buf_len = 1024
