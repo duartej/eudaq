@@ -33,7 +33,13 @@ int main(int /*argc*/, const char **argv) {
   if(type_in=="raw")
     type_in = "native";
   if(type_out=="raw")
-    type_out = "native";
+  {
+      type_out = "native";
+  }
+  else if(type_out=="root")
+  {
+    type_out = "root"; 
+  }
   
   eudaq::FileReaderUP reader;
   eudaq::FileWriterUP writer;
