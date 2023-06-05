@@ -13,7 +13,7 @@ if(USER_TLU_BUILD_EUDET)
 endif()
 
 if(USER_TLU_BUILD_AIDA)
-  include_directories(${CACTUS_INCLUDE_DIR})
+  include_directories(${CACTUS_INCLUDE_DIR} ${Boost_INCLUDE_DIR})
   list(APPEND USER_HARDWARE_SRC 
     src/AidaTluController.cc
     src/AidaTluHardware.cc

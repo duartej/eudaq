@@ -32,7 +32,7 @@ find_package(CACTUS)
 cmake_dependent_option(USER_TLU_BUILD_AIDA "build user/eudet AIDA TLU" ON
   "CACTUS_FOUND" OFF)
 
-find_package(Boost)
+find_package(Boost 1.77 REQUIRED COMPONENTS filesystem)
 cmake_dependent_option(USER_TLU_BUILD_AIDA "build user/eudet AIDA TLU" ON
   "Boost_FOUND" OFF)
 
