@@ -9,6 +9,8 @@ log/*
 test.conf
 test.ini
 
+user/*/extern
+
 *.raw
 *.log
 *.root
