@@ -32,6 +32,10 @@ find_package(CACTUS)
 cmake_dependent_option(USER_TLU_BUILD_AIDA "build user/eudet AIDA TLU" ON
   "CACTUS_FOUND" OFF)
 
+find_package(BOOST)
+cmake_dependent_option(USER_TLU_BUILD_AIDA "build user/eudet AIDA TLU" ON
+  "BOOST_FOUND" OFF)
+
 # for the EUDET TLU
     find_package(ZestSC1)
     find_package(LIBUSB)
