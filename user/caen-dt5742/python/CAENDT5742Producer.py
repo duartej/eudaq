@@ -1,15 +1,20 @@
 #! /usr/bin/env python3
-# load binary lib/pyeudaq.so
-import sys
-import pyeudaq
-from pyeudaq import EUDAQ_INFO, EUDAQ_ERROR
-from CAENpy.CAENDigitizer import CAEN_DT5742_Digitizer # https://github.com/SengerM/CAENpy
+# -*- coding: utf-8
+
+# XXX -- DOC 
 import pickle
 import ast
 import numpy
+import sys
+
+import pyeudaq
+from pyeudaq import EUDAQ_INFO, EUDAQ_ERROR
+
+# https://github.com/SengerM/CAENpy
+from CAENpy.CAENDigitizer import CAEN_DT5742_Digitizer 
+
 
 DIGITIZER_RECORD_LENGTH = 1024
-
 def parse_channels_mapping(channels_mapping_str:str):
 	"""Parse the `channels_mapping` config parameter and returns the 
 	expected dictionary. Also raises `ValueError` if anything is wrong."""
