@@ -2,10 +2,8 @@
 # -*- coding: utf-8
 
 # XXX -- DOC 
-import pickle
 import ast
 import numpy
-import sys
 
 import pyeudaq
 from pyeudaq import EUDAQ_INFO, EUDAQ_ERROR
