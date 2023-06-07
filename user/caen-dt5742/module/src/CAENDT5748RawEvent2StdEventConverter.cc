@@ -6,10 +6,10 @@
 
 #define DIGITIZER_RECORD_LENGTH 1024 // This setting is also hardcoded in the producer. It can be changed.
 
-class CAEN_DT5748RawEvent2StdEventConverter: public eudaq::StdEventConverter {
+class CAENDT5748RawEvent2StdEventConverter: public eudaq::StdEventConverter {
 	public:
 		bool Converting(eudaq::EventSPC d1, eudaq::StdEventSP d2, eudaq::ConfigSPC conf) const override;
-		static const uint32_t m_id_factory = eudaq::cstr2hash("CAEN_DT5748");
+		static const uint32_t m_id_factory = eudaq::cstr2hash("CAENDT5748");
 	private:
 		void Initialize(eudaq::EventSPC bore, eudaq::ConfigurationSPC conf) const;
 		mutable size_t n_samples_per_waveform;
@@ -21,10 +21,10 @@ class CAEN_DT5748RawEvent2StdEventConverter: public eudaq::StdEventConverter {
 };
 
 namespace {
-	auto dummy0 = eudaq::Factory<eudaq::StdEventConverter>::Register<CAEN_DT5748RawEvent2StdEventConverter>(CAEN_DT5748RawEvent2StdEventConverter::m_id_factory);
+	auto dummy0 = eudaq::Factory<eudaq::StdEventConverter>::Register<CAENDT5748RawEvent2StdEventConverter>(CAENDT5748RawEvent2StdEventConverter::m_id_factory);
 }
 
-void CAEN_DT5748RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, eudaq::ConfigurationSPC conf) const {
+void CAENDT5748RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, eudaq::ConfigurationSPC conf) const {
 	std::string s;
 	
 	n_samples_per_waveform = std::stoi(bore->GetTag("n_samples_per_waveform"));
@@ -139,7 +139,7 @@ float amplitude_from_waveform(std::vector<float>& waveform) {
 	return max(waveform) - base_line;
 }
 
-bool CAEN_DT5748RawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdEventSP d2, eudaq::ConfigSPC conf) const {
+bool CAENDT5748RawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdEventSP d2, eudaq::ConfigSPC conf) const {
 	auto event = std::dynamic_pointer_cast<const eudaq::RawEvent>(d1);
 	if (event == nullptr) {
 		EUDAQ_ERROR("Received null event.");
