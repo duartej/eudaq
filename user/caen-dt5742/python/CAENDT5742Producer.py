@@ -13,24 +13,42 @@ from pyeudaq import EUDAQ_INFO, EUDAQ_ERROR
 # https://github.com/SengerM/CAENpy
 from CAENpy.CAENDigitizer import CAEN_DT5742_Digitizer 
 
-
+# XXX -- HARDCODED? Maybe incorporate this in the config, and propagate
+#        it to the converter
 DIGITIZER_RECORD_LENGTH = 1024
 def parse_channels_mapping(channels_mapping_str:str):
 	"""Parse the `channels_mapping` config parameter and returns the 
-	expected dictionary. Also raises `ValueError` if anything is wrong."""
+	expected dictionary. Also raises `ValueError` if anything is wrong.
+
+    Parameters
+    ----------
+    channels_mapping_str: str
+        XXX -- DOC -> WHAT's those mapping?
+
+    Return
+    ------
+
+    """
 	try:
 		channels_mapping = ast.literal_eval(channels_mapping_str)
 	except Exception as e:
-		raise ValueError(f'Cannot parse `channels_mapping` into a Python object, probably there is a syntax error in your config file. The error raised by the method in charge of the parsing is: {repr(e)}')
+		raise ValueError(f'Cannot parse `channels_mapping` into a Python object,'\
+                ' probably there is a syntax error in your config file. The error'\
+                ' raised by the method in charge of the parsing is: {repr(e)}')
 	if not isinstance(channels_mapping, dict):
-		raise ValueError(f'`channels_mapping` should be a dictionary, received instead an object of type {type(channels_mapping)}')
+		raise ValueError(f'`channels_mapping` should be a dictionary, received instead'\
+                ' an object of type {type(channels_mapping)}')
 	for k,i in channels_mapping.items():
 		if not isinstance(k, str):
-			raise ValueError(f'The keys of `channels_mapping` must be strings containing the names of each plane, but received `{repr(k)}` of type {type(k)}')
+			raise ValueError(f'The keys of `channels_mapping` must be strings containing'\
+                    ' the names of each plane, but received `{repr(k)}` of type {type(k)}')
 		if not isinstance(i, list) or any([not isinstance(_,list) for _ in i]) or any([len(i[0])!=len(_) for _ in i]):
-			raise ValueError(f'Each item of `channels_mapping` must be a two dimensional array specified as a list of lists with dimensions X×Y being X the number of pixels in x and Y the number of pixels in Y')
+			raise ValueError(f'Each item of `channels_mapping` must be a two dimensional'\
+                    ' array specified as a list of lists with dimensions X×Y being X the'\
+                    ' number of pixels in x and Y the number of pixels in Y')
 		if any([not isinstance(_,str) for __ in i for _ in __]):
-			raise ValueError(f'The elements inside the lists of `channels_mapping` must be strings with the channels names from the CAEN, e.g. `"CH1"`.')
+			raise ValueError(f'The elements inside the lists of `channels_mapping` must'\
+                    ' be strings with the channels names from the CAEN, e.g. `"CH1"`.')
 	return channels_mapping
 
 def exception_handler(method):
@@ -90,9 +108,12 @@ class CAENDT5742Producer(pyeudaq.Producer):
 		
 		channels_mapping_str = self.GetConfigItem('channels_mapping')
 		self.channels_mapping = parse_channels_mapping(channels_mapping_str)
-		self.channels_names_list = sorted([self.channels_mapping[ch][i][j] for ch in self.channels_mapping for i in range(len(self.channels_mapping[ch])) for j in range(len(self.channels_mapping[ch][i]))]) # This is the order in which the data will be stored, i.e. which channel first, which second, etc.
-		
-		# Parse parameters and raise errors if necessary:
+
+        # This is the order in which the data will be stored, i.e. which channel first, which second, etc.
+        self.channels_names_list = sorted([self.channels_mapping[ch][i][j] 
+                                     for ch in self.channels_mapping for i in range(len(self.channels_mapping[ch]))
+                                     for j in range(len(self.channels_mapping[ch][i]))]) 	
+        # Parse parameters and raise errors if necessary:
 		for param_name in CONFIGURE_PARAMS:
 			received_param_value = self.GetConfigItem(param_name)
 			param_value_to_be_configured = received_param_value if received_param_value != '' else CONFIGURE_PARAMS[param_name].get('default')
@@ -124,7 +145,8 @@ class CAENDT5742Producer(pyeudaq.Producer):
 		
 		# Enable busy signal on GPO:
 		self._digitizer.write_register(
-			address = 0x811C, # Front Panel I/O Control, see '742 Raw Waveform Registers Description' in https://www.caen.it/products/dt5742/ → Downloads.
+            # Front Panel I/O Control, see '742 Raw Waveform Registers Description' in https://www.caen.it/products/dt5742/ → Downloads.
+			address = 0x811C, 
 			data = (0
 				| 0b1<<0 # TTL standard.
 				| 0b01<<16 #  Motherboard Probes: TRG‐OUT/GPO is used to propagate signals of the motherboards according to bits[19:18].
