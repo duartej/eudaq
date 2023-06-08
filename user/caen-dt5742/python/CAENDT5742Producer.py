@@ -231,23 +231,11 @@ class CAENDT5742Producer(pyeudaq.Producer):
         def thread_target_function():
             n_trigger = 0
             while self.is_running:
-                this_trigger_waveforms = self.events_queue.get()
-                serialized_data = np.concatenate(
-                        [this_trigger_waveforms[ch]['Amplitude (ADCu)'] for ch in self.channels_names_list],
-                        # Hardcode data type to be sure it is always the same. 
-                        # (Though you would expect `int` here, CAENDigitizer library returns floats...)
-                        dtype = np.float32, 
-                        )
-                serialized_data = serialized_data.tobytes()
-                
                 # Creation of the caen event type and sub-type 
                 #event = pyeudaq.Event("CAENDT5748RawEvent", "CAENDT5748")
                 # XXX -- Need this new event type, or enough with the RawEvent?
-                event = pyeudaq.Event("RawEvent", "CAENDT5748")
+                event = pyeudaq.Event("RawEvent", "CAENDT5748")                
                 event.SetTriggerN(n_trigger)
-                event.AddBlock( 0, serialized_data )
-                # Use the channel as Block Id? 
-                # Then for ch in enumerate(self.channels_names_list) : event.AddBlock(ch, serialized_data[ch]) 
                 
                 # BORE info
                 if n_trigger == 0:
@@ -272,6 +260,22 @@ class CAENDT5742Producer(pyeudaq.Producer):
                         event.SetTag(f'{dut_label}_n_channels', repr(sum([len(_) for _ in dut_channels]))) # Number of channels (i.e. number of waveforms) belonging to this DUT.
                         n_dut += 1
 
+                # -- XXX - THe CHannel will give the information of thee position in x/y of the pad
+                #          within the DUT
+                # Extract the waveforms
+                this_trigger_waveforms = self.events_queue.get()
+                for ch in self.channels_names_list:
+                    serialized_data = np.array( this_trigger_waveforms[ch]['Amplitude (ADCu)'], dtype=np.float32)
+                    serialized_data = serialized_data.tobytes()
+                    # Convert back into an integer
+                    # Note the special case: trigger_group_0 -> 8  and trigger_group_1 --> 17
+                    try:
+                        ch_id = int(ch.replace('CH',''))
+                    except ValueError:
+                        ch_id = 8 if ch == 'trigger_group_0' else 17
+                    # Use the channel as Block Id
+                    event.AddBlock(ch_id, serialized_data)
+                
                 self.SendEvent(event)
                 n_trigger += 1
                 self.events_queue.task_done()
