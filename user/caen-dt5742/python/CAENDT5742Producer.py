@@ -7,8 +7,8 @@
 import ast
 
 # https://github.com/SengerM/CAENpy
-#from CAENpy.CAENDigitizer import CAEN_DT5742_Digitizer
-from CAENpy.SimCAENDigitizer import FakeCAEN_DT5742_Digitizer as CAEN_DT5742_Digitizer
+from CAENpy.CAENDigitizer import CAEN_DT5742_Digitizer
+from CAENpy.SimCAENDigitizer import FakeCAEN_DT5742_Digitizer
 import click
 
 import numpy as np
@@ -21,9 +21,14 @@ import queue
 import threading 
 import time
 
-# XXX -- HARDCODED? Maybe incorporate this in the config, and propagate
-#        it to the converter
-DIGITIZER_RECORD_LENGTH = 1024
+
+# Variable to allow the use the real DAQ or a simulation
+class _DAQ(object):
+    _actual_daq = None
+    def __call__(self, *values,**kwd):
+        return _DAQ._actual_daq(*values,**kwd)
+CAEN_DAQ = _DAQ()
+
 def parse_channels_mapping(channels_mapping_str:str):
     """Parse the `channels_mapping` config parameter and returns the 
 	expected dictionary. Also raises `ValueError` if anything is wrong.
@@ -69,12 +74,19 @@ def exception_handler(method):
     return inner
 
 class CAENDT5742Producer(pyeudaq.Producer):
-    def __init__(self, name, runctrl):
+    def __init__(self, name, runctrl, simulation):
         pyeudaq.Producer.__init__(self, name, runctrl)
         self.is_running = 0
         EUDAQ_INFO('CAENDT5742Producer: New instance')
         # To ensure a responsible and thread-safe handling
         self._CAEN_lock = threading.Lock()
+
+        if simulation:
+            _DAQ._actual_daq = FakeCAEN_DT5742_Digitizer
+            self.is_simulation = True
+        else:
+            _DAQ._actual_daq = CAEN_DT5742_Digitizer
+            self.is_simulation = False
         
     @exception_handler
     def DoInitialise(self):
@@ -85,7 +97,7 @@ class CAENDT5742Producer(pyeudaq.Producer):
             raise RuntimeError(f'`LinkNum` (int) parameter is mandatory in the init file.')
         except ValueError:
             raise ValueError(f'`LinkNum` must be an integer')
-        self._digitizer = CAEN_DT5742_Digitizer(LinkNum=LinkNum)
+        self._digitizer = CAEN_DAQ(LinkNum=LinkNum)
 
     @exception_handler
     def DoConfigure(self):
@@ -184,6 +196,10 @@ class CAENDT5742Producer(pyeudaq.Producer):
         
     @exception_handler
     def DoStopRun(self):
+        # Return inmediately if simulation
+        if self.is_simulation:
+            self._digitizer.stop_acquisition()
+
         with self._CAEN_lock:
             self._digitizer.stop_acquisition()
         is_there_stuff_still_in_the_digitizer_memory = True
@@ -272,8 +288,10 @@ class CAENDT5742Producer(pyeudaq.Producer):
               help='Name for the producer (default "CAEN_digitizer")')
 @click.option('-r','--runctrl',default='tcp://localhost:44000', 
               help='Address of the run control, for example (and default) "tcp://localhost:44000"')
-def main(name,runctrl):
-    producer = CAENDT5742Producer(name,runctrl)
+@click.option('-s','--dry-run',is_flag=True, default=False, 
+              help='Don\'t connect to anything, use a simulation to produce events')
+def main(name,runctrl,dry_run):
+    producer = CAENDT5742Producer(name,runctrl,dry_run)
     # XXX -- logger
     print (f"[CAENDGT57545Producer]: Connecting to runcontrol in {runctrl} ...")
     producer.Connect()
