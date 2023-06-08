@@ -112,6 +112,11 @@ class CAENDT5742Producer(pyeudaq.Producer):
                     default = 1,
                     type = int,
                     ),
+                'record_length': dict(
+                    set_method = 'set_record_length',
+                    default = 1024,
+                    type = int,
+                    ),
                 'fast_trigger_threshold_ADCu': dict(
                     set_method = 'set_fast_trigger_threshold',
                     type = int,
@@ -166,7 +171,6 @@ class CAENDT5742Producer(pyeudaq.Producer):
             self._digitizer.set_trigger_polarity(channel=ch, edge=CONFIGURE_PARAMS['trigger_polarity']['value'])
             
         # Some non-configurable settings:
-        self._digitizer.set_record_length(DIGITIZER_RECORD_LENGTH)
         self._digitizer.set_acquisition_mode('sw_controlled')
         self._digitizer.set_ext_trigger_input_mode('disabled')
         self._digitizer.set_fast_trigger_mode(enabled=True)
@@ -258,7 +262,7 @@ class CAENDT5742Producer(pyeudaq.Producer):
                     event.SetTag('number_of_DUTs', repr(len(self.channels_mapping)))
                     event.SetTag('sampling_frequency_MHz', repr(self._digitizer.get_sampling_frequency()))
                     # Number of samples per waveform to decode the raw data.
-                    event.SetTag('n_samples_per_waveform', repr(DIGITIZER_RECORD_LENGTH))
+                    event.SetTag('n_samples_per_waveform', repr(self._digitizer.get_record_length()))
                     n_dut = 0
                     for dut_name, dut_channels in self.channels_mapping.items():
                         dut_label = f'DUT_{n_dut}' # DUT_0, DUT_1, ...
