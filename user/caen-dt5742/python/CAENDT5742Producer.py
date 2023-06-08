@@ -285,6 +285,9 @@ class CAENDT5742Producer(pyeudaq.Producer):
                     # Waveforms is a list of dictionaries, each of which contains the waveforms from each trigger.
                     for this_trigger_waveforms in waveforms:
                         self.events_queue.put(this_trigger_waveforms)
+                else:
+                    # XXX -- Cross check that's correct (or only for simulation?)
+                    break
 
 
 @click.command()
