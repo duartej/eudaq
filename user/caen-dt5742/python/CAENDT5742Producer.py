@@ -5,14 +5,21 @@
 
 # FIXME -- Create timestamp? Extract from trigger channel?
 import ast
+
+# https://github.com/SengerM/CAENpy
+#from CAENpy.CAENDigitizer import CAEN_DT5742_Digitizer
+from CAENpy.SimCAENDigitizer import FakeCAEN_DT5742_Digitizer as CAEN_DT5742_Digitizer
+import click
+
 import numpy as np
 
 import pyeudaq
 from pyeudaq import EUDAQ_INFO, EUDAQ_ERROR
 
-# https://github.com/SengerM/CAENpy
-#from CAENpy.CAENDigitizer import CAEN_DT5742_Digitizer
-from CAENpy.SimCAENDigitizer import FakeCAEN_DT5742_Digitizer as CAEN_DT5742_Digitizer
+import queue
+
+import threading 
+import time
 
 # XXX -- HARDCODED? Maybe incorporate this in the config, and propagate
 #        it to the converter
@@ -66,6 +73,8 @@ class CAENDT5742Producer(pyeudaq.Producer):
         pyeudaq.Producer.__init__(self, name, runctrl)
         self.is_running = 0
         EUDAQ_INFO('CAENDT5742Producer: New instance')
+        # To ensure a responsible and thread-safe handling
+        self._CAEN_lock = threading.Lock()
         
     @exception_handler
     def DoInitialise(self):
@@ -175,7 +184,17 @@ class CAENDT5742Producer(pyeudaq.Producer):
         
     @exception_handler
     def DoStopRun(self):
-        self._digitizer.stop_acquisition()
+        with self._CAEN_lock:
+            self._digitizer.stop_acquisition()
+        is_there_stuff_still_in_the_digitizer_memory = True
+        while is_there_stuff_still_in_the_digitizer_memory:
+            # Wait for any remaining data that is still in the memory of the digitizer.
+            with self._CAEN_lock:
+                is_there_stuff_still_in_the_digitizer_memory = \
+                        self._digitizer.get_acquisition_status()['at least one event available for readout'] == True
+            time.sleep(.1)
+        # Wait for all the waveforms to be processed.
+        self.events_queue.join()
         self.is_running = 0
 
     @exception_handler
@@ -187,38 +206,43 @@ class CAENDT5742Producer(pyeudaq.Producer):
         
     @exception_handler
     def RunLoop(self):
-        n_trigger = 0
-        while(self.is_running):
-            if self._digitizer.get_acquisition_status()['at least one event available for readout'] == True:
-                waveforms = self._digitizer.get_waveforms(get_time=False, get_ADCu_instead_of_volts=True)
+        self.events_queue = queue.Queue()
+
+        def thread_target_function():
+            n_trigger = 0
+            while self.is_running:
+                this_trigger_waveforms = self.events_queue.get()
                 serialized_data = np.concatenate(
-                        [waveforms[0][ch]['Amplitude (ADCu)'] for ch in self.channels_names_list],
+                        [this_trigger_waveforms[ch]['Amplitude (ADCu)'] for ch in self.channels_names_list],
                         # Hardcode data type to be sure it is always the same. 
                         # (Though you would expect `int` here, CAENDigitizer library returns floats...)
                         dtype = np.float32, 
                         )
                 serialized_data = serialized_data.tobytes()
-
+                
                 # Creation of the caen event type and sub-type 
                 #event = pyeudaq.Event("CAENDT5748RawEvent", "CAENDT5748")
                 # XXX -- Need this new event type, or enough with the RawEvent?
                 event = pyeudaq.Event("RawEvent", "CAENDT5748")
                 event.SetTriggerN(n_trigger)
-                # FIXME ---> Nooooo!!! Usually use 1 block (0), sometimes
-                #            1-block per channel/DUT or whatever..?
-                #            but no the trigger!!
-                event.AddBlock(
-                        n_trigger, # `id`, whatever that means.
-                        serialized_data, # `data`, the data to append.
-                        )
+                event.AddBlock( 0, serialized_data )
+                # Use the channel as Block Id? 
+                # Then for ch in enumerate(self.channels_names_list) : event.AddBlock(ch, serialized_data[ch]) 
                 
-                if n_trigger == 0: # Add "header information".
-                    event.SetBORE() # beginning-of-run-event (BORE). http://eudaq.github.io/manual/EUDAQUserManual_v2_0_1.pdf#glo%3ABORE
-                    event.SetTag('channels_mapping_str', repr(self.channels_mapping)) # Literally whatever the `channels_mapping` parameter in the config file was, e.g. `{'DUT_1': [['CH0','CH1'],['CH2','CH3']], 'DUT_2': [['CH4','CH5'],['CH6','CH7']]}`.
-                    event.SetTag('channels_names_list', repr(self.channels_names_list)) # A list with the channels that were acquired and in the order they are stored in the raw data, e.g. `['CH0','CH1','CH2',...]`
-                    event.SetTag('number_of_DUTs', repr(len(self.channels_mapping))) # Number of DUTs that were specified in `channels_mapping` in the config file.
-                    event.SetTag('sampling_frequency_MHz', repr(self._digitizer.get_sampling_frequency())) # Integer number.
-                    event.SetTag('n_samples_per_waveform', repr(DIGITIZER_RECORD_LENGTH)) # Number of samples per waveform to decode the raw data.
+                # BORE info
+                if n_trigger == 0:
+                    event.SetBORE()
+                    # Literally whatever the `channels_mapping` parameter in the config file was, #
+                    # e.g. `{'DUT_1': [['CH0','CH1'],['CH2','CH3']], 'DUT_2': [['CH4','CH5'],['CH6','CH7']]}`.
+                    event.SetTag('channels_mapping_str', repr(self.channels_mapping))
+                    # A list with the channels that were acquired and in the order they are stored in the raw data, 
+                    #e.g. `['CH0','CH1','CH2',...]`
+                    event.SetTag('channels_names_list', repr(self.channels_names_list))
+                    # Number of DUTs that were specified in `channels_mapping` in the config file.
+                    event.SetTag('number_of_DUTs', repr(len(self.channels_mapping)))
+                    event.SetTag('sampling_frequency_MHz', repr(self._digitizer.get_sampling_frequency()))
+                    # Number of samples per waveform to decode the raw data.
+                    event.SetTag('n_samples_per_waveform', repr(DIGITIZER_RECORD_LENGTH))
                     n_dut = 0
                     for dut_name, dut_channels in self.channels_mapping.items():
                         dut_label = f'DUT_{n_dut}' # DUT_0, DUT_1, ...
@@ -230,14 +254,33 @@ class CAENDT5742Producer(pyeudaq.Producer):
 
                 self.SendEvent(event)
                 n_trigger += 1
+                self.events_queue.task_done()
 
+        threading.Thread(target=thread_target_function, daemon=True).start()
+
+        while(self.is_running):
+            with self._CAEN_lock:
+                if self._digitizer.get_acquisition_status()['at least one event available for readout'] == True:
+                    waveforms = self._digitizer.get_waveforms(get_time=False, get_ADCu_instead_of_volts=True)
+                    # Waveforms is a list of dictionaries, each of which contains the waveforms from each trigger.
+                    for this_trigger_waveforms in waveforms:
+                        self.events_queue.put(this_trigger_waveforms)
+
+
+@click.command()
+@click.option('-n','--name', default='CAEN_digitizer',
+              help='Name for the producer (default "CAEN_digitizer")')
+@click.option('-r','--runctrl',default='tcp://localhost:44000', 
+              help='Address of the run control, for example (and default) "tcp://localhost:44000"')
+def main(name,runctrl):
+    producer = CAENDT5742Producer(name,runctrl)
+    # XXX -- logger
+    print (f"[CAENDGT57545Producer]: Connecting to runcontrol in {runctrl} ...")
+    producer.Connect()
+    time.sleep(2)
+    print('[CAENDGT57545Producer]: Connected')
+    while(producer.IsConnected()):
+        time.sleep(1)
+        
 if __name__ == "__main__":
-	import time
-	
-	myproducer = CAENDT5742Producer("CAEN_digitizer", "tcp://localhost:44000")
-	print ("Connecting to runcontrol in localhost:44000...")
-	myproducer.Connect()
-	time.sleep(2)
-	print('Ready!')
-	while(myproducer.IsConnected()):
-		time.sleep(1)
+    main()
