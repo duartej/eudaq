@@ -5,13 +5,14 @@
 
 # FIXME -- Create timestamp? Extract from trigger channel?
 import ast
-import numpy
+import numpy as np
 
 import pyeudaq
 from pyeudaq import EUDAQ_INFO, EUDAQ_ERROR
 
 # https://github.com/SengerM/CAENpy
-from CAENpy.CAENDigitizer import CAEN_DT5742_Digitizer 
+#from CAENpy.CAENDigitizer import CAEN_DT5742_Digitizer
+from CAENpy.SimCAENDigitizer import FakeCAEN_DT5742_Digitizer as CAEN_DT5742_Digitizer
 
 # XXX -- HARDCODED? Maybe incorporate this in the config, and propagate
 #        it to the converter
@@ -62,20 +63,19 @@ def exception_handler(method):
 
 class CAENDT5742Producer(pyeudaq.Producer):
     def __init__(self, name, runctrl):
-        pyeudaq.Producer.__init__(self, 'CENDT5742Producer', name, runctrl)
+        pyeudaq.Producer.__init__(self, name, runctrl)
         self.is_running = 0
         EUDAQ_INFO('CAENDT5742Producer: New instance')
         
     @exception_handler
     def DoInitialise(self):
-        LinkNum = self.GetInitItem('LinkNum')
-        if LinkNum == '': # This happens when the parameter is not specified.
-            raise RuntimeError(f'The init parameter `LinkNum` (type int) must be provided in the init file.')
-
+        initconf = self.GetInitConfiguration().as_dict()
         try:
-            LinkNum = int(LinkNum)
-        except Exception as e:
-            raise ValueError(f'The parameter `LinkNum` must be an integer, received {repr(LinkNum)}. ')
+            LinkNum = int(initconf['LinkNum'])
+        except KeyError:
+            raise RuntimeError(f'`LinkNum` (int) parameter is mandatory in the init file.')
+        except ValueError:
+            raise ValueError(f'`LinkNum` must be an integer')
         self._digitizer = CAEN_DT5742_Digitizer(LinkNum=LinkNum)
 
     @exception_handler
@@ -108,29 +108,37 @@ class CAENDT5742Producer(pyeudaq.Producer):
         # Always better to start in a known state
         self._digitizer.reset() 
         
-        channels_mapping_str = self.GetConfigItem('channels_mapping')
+        conf = self.GetConfiguration().as_dict()
+        channels_mapping_str = conf['channels_mapping']
         self.channels_mapping = parse_channels_mapping(channels_mapping_str)
         
         # This is the order in which the data will be stored, i.e. which channel first, which second, etc.
         self.channels_names_list = sorted([self.channels_mapping[ch][i][j] 
                                            for ch in self.channels_mapping for i in range(len(self.channels_mapping[ch]))
                                            for j in range(len(self.channels_mapping[ch][i]))]) 	
+        
         # Parse parameters and raise errors if necessary:
-        for param_name in CONFIGURE_PARAMS:
-            received_param_value = self.GetConfigItem(param_name)
-            param_value_to_be_configured = received_param_value if received_param_value != '' else CONFIGURE_PARAMS[param_name].get('default')
-            if param_value_to_be_configured is None: # This means it is mandatory and was not specified, i.e. there is no default value.
-                raise RuntimeError(f'Configuration parameter {repr(param_name)} is mandatory and was not specified in the configuration file. ')
-            try: # Convert to the correct data type...
-                param_value_to_be_configured = CONFIGURE_PARAMS[param_name]['type'](param_value_to_be_configured)
+        for param_name, param_dict in CONFIGURE_PARAMS.items():
+            try:
+                received_param_value = conf[param_name]
+            except KeyError: 
+                # Not in the configuration file, use the default from the internal dict
+                received_param_value = param_dict.get('default')
+                # This means it is mandatory and was not specified, i.e. there is no default value.
+                if received_param_value is None: 
+                    raise RuntimeError(f'Configuration parameter {repr(param_name)} is '\
+                            'mandatory and was not specified in the configuration file. ')
+            #Convert to the correct data type...
+            try:
+                param_value = param_dict['type'](received_param_value)
             except Exception as e:
-                raise ValueError(f'The parameter `{param_name}` must be of type {CONFIGURE_PARAMS[param_name]["type"]}, received {repr(received_param_value)}. ')
-            CONFIGURE_PARAMS[param_name]['value'] = param_value_to_be_configured
-            
-        # Automatically configure those parameters which are easy to configure:
-        for param_name in CONFIGURE_PARAMS:
-            if CONFIGURE_PARAMS[param_name].get('set_method') is not None: # Then we can automatically set it here, otherwise do it manually below.
-                getattr(self._digitizer, CONFIGURE_PARAMS[param_name]['set_method'])(CONFIGURE_PARAMS[param_name]['value'])
+                raise ValueError(f'The parameter `{param_name}` must be of type {param_dict["type"]}, '\
+                        'received {repr(received_param_value)}. ')
+            if param_dict.get('set_method') is not None:
+                getattr(self._digitizer, param_dict['set_method'])(param_value)
+            else:
+                # This is just for trigger polarity.. XXX -- Is this needed?
+                param_dict['value'] = param_value
                 
         # Manual configuration of parameters:
         for ch in [0,1]:
@@ -183,18 +191,18 @@ class CAENDT5742Producer(pyeudaq.Producer):
         while(self.is_running):
             if self._digitizer.get_acquisition_status()['at least one event available for readout'] == True:
                 waveforms = self._digitizer.get_waveforms(get_time=False, get_ADCu_instead_of_volts=True)
-                serialized_data = numpy.concatenate(
+                serialized_data = np.concatenate(
                         [waveforms[0][ch]['Amplitude (ADCu)'] for ch in self.channels_names_list],
                         # Hardcode data type to be sure it is always the same. 
                         # (Though you would expect `int` here, CAENDigitizer library returns floats...)
-                        dtype = numpy.float32, 
+                        dtype = np.float32, 
                         )
                 serialized_data = serialized_data.tobytes()
 
                 # Creation of the caen event type and sub-type 
-                event = pyeudaq.Event("CAENDT5748RawEvent", "CAENDT5748")
+                #event = pyeudaq.Event("CAENDT5748RawEvent", "CAENDT5748")
                 # XXX -- Need this new event type, or enough with the RawEvent?
-                #event = pyeudaq.Event("RawEvent", "CAENDT5748")
+                event = pyeudaq.Event("RawEvent", "CAENDT5748")
                 event.SetTriggerN(n_trigger)
                 # FIXME ---> Nooooo!!! Usually use 1 block (0), sometimes
                 #            1-block per channel/DUT or whatever..?
