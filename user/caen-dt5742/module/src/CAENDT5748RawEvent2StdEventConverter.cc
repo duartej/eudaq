@@ -2,6 +2,7 @@
 // -- 
 #include "eudaq/StdEventConverter.hh"
 #include "eudaq/RawEvent.hh"
+#include "eudaq/Logger.hh"
 
 #include <vector>
 #include <map>
@@ -13,10 +14,7 @@
 // XXX PROV
 #include <iterator>
 // XXX PROV
-
-// XXX -- Hardcoded in the producer. CHANGED--> Once included in the producer, this
-//        can be propagated into the data using a Tag, for instance
-#define DIGITIZER_RECORD_LENGTH 1024 
+//
 
 class CAENDT5748RawEvent2StdEventConverter: public eudaq::StdEventConverter {
     public:
@@ -102,25 +100,33 @@ void CAENDT5748RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, euda
         }
 
     }
-std::cout << " ENTERING INITIALIZATION (all of this is coming from the bore->GetTag): " << std::endl;
-std::cout << " nsamples_per_waveform: " << n_samples_per_waveform 
-    << " sampling frequency: " << sampling_frequency_MHz << " MHz"
-    << " number of DUTs: " << number_of_DUTs 
-    << " Channel list: " ;
-    std::copy(channels_names_list.begin(), channels_names_list.end(), std::ostream_iterator<std::string>(std::cout, " "));
-    std::cout << " \nDUT list: ";
-    std::copy(DUTs_names.begin(), DUTs_names.end(), std::ostream_iterator<std::string>(std::cout, " ")) ;
-    std::cout << std::endl;
-for(const auto & dutid_chlist: _dut_channel_list)
-{
-    std::cout << " ---> " << dutid_chlist.first << ": ";
-    for(const auto & _ch: dutid_chlist.second)
+
+    // Debugging print-out stuff
+    EUDAQ_DEBUG(" Initialize: nsamples_per_waveform: " + std::to_string(_n_samples_per_waveform) +
+            ", sampling frequency: " + std::to_string(_sampling_frequency_MHz) + " MHz" +
+            ", number of DUTs: " + std::to_string(_n_duts));
+    // Get the list of channels
+    std::ostringstream oss;
+    std::copy(_channel_names_list.begin(), _channel_names_list.end(), std::ostream_iterator<std::string>(oss, " "));
+    EUDAQ_DEBUG(" Initialize: Channel names list-[ " + oss.str() +"]");
+    // And the DUTs
+    // clear first the oss
+    oss.str("");
+    oss.clear();
+    std::copy(DUTs_names.begin(), DUTs_names.end(), std::ostream_iterator<std::string>(oss, " ")) ;
+    EUDAQ_DEBUG(" Initialize: DUT names-["+oss.str()+"]");
+    oss.str("");
+    oss.clear();
+    for(const auto & dutid_chlist: _dut_channel_list)
     {
-        std::cout << " " << _ch ;
+        oss << " [DUT:" << dutid_chlist.first << "]-{";
+        for(const auto & _ch: dutid_chlist.second)
+        {
+            oss << " " << _ch ;
+        }
+        oss << " } ";
     }
-    std::cout << std::endl;
-}
-std::cin.get();
+    EUDAQ_DEBUG(" Initialize:"+oss.str());
 }
 
 std::vector<float> uint8VectorToFloatVector(std::vector<uint8_t> data) {
@@ -169,8 +175,6 @@ float amplitude_from_waveform(std::vector<float>& waveform) {
 
 bool CAENDT5748RawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdEventSP d2, eudaq::ConfigSPC conf) const {
 
-std::cout << " ENtering in Coverting **************************************************** CAEN" << std::endl;
-std::cin.get();
     auto event = std::dynamic_pointer_cast<const eudaq::RawEvent>(d1);
     if (event == nullptr) {
         EUDAQ_ERROR("Received null event.");
@@ -178,7 +182,7 @@ std::cin.get();
     }
 
     // Beginning Of Run Event, this is the header event.
-    if (event->IsBORE()) { 
+    if(event->IsBORE()) { 
         EUDAQ_INFO("Starting initialization...");
         Initialize(event, conf);
     }
