@@ -142,6 +142,14 @@ class CAENDT5742Producer(pyeudaq.Producer):
         self.channels_names_list = sorted([self.channels_mapping[ch][i][j] 
                                            for ch in self.channels_mapping for i in range(len(self.channels_mapping[ch]))
                                            for j in range(len(self.channels_mapping[ch][i]))]) 	
+        # Convert back into integers
+        # Note the special case: trigger_group_0 -> 8  and trigger_group_1 --> 17
+        self.channels_to_int = {}
+        for ch in self.channels_names_list:
+            try:
+                self.channels_to_int[ch] =  int(ch.replace('CH','')) 
+            except ValueError:
+                self.channels_to_int[ch] = 8 if ch == 'trigger_group_0' else 17 
         
         # Parse parameters and raise errors if necessary:
         for param_name, param_dict in CONFIGURE_PARAMS.items():
@@ -267,14 +275,8 @@ class CAENDT5742Producer(pyeudaq.Producer):
                 for ch in self.channels_names_list:
                     serialized_data = np.array( this_trigger_waveforms[ch]['Amplitude (ADCu)'], dtype=np.float32)
                     serialized_data = serialized_data.tobytes()
-                    # Convert back into an integer
-                    # Note the special case: trigger_group_0 -> 8  and trigger_group_1 --> 17
-                    try:
-                        ch_id = int(ch.replace('CH',''))
-                    except ValueError:
-                        ch_id = 8 if ch == 'trigger_group_0' else 17
                     # Use the channel as Block Id
-                    event.AddBlock(ch_id, serialized_data)
+                    event.AddBlock(self.channels_to_int[ch], serialized_data)
                 
                 self.SendEvent(event)
                 n_trigger += 1
@@ -291,6 +293,7 @@ class CAENDT5742Producer(pyeudaq.Producer):
                         self.events_queue.put(this_trigger_waveforms)
                 else:
                     # XXX -- Cross check that's correct (or only for simulation?)
+                    # then elif self.is_simulation:
                     break
 
 
