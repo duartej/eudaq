@@ -23,31 +23,43 @@ class CAENDT5748RawEvent2StdEventConverter: public eudaq::StdEventConverter {
 
     private:
         void Initialize(eudaq::EventSPC bore, eudaq::ConfigurationSPC conf) const;
-        mutable size_t n_samples_per_waveform;
-        mutable size_t sampling_frequency_MHz;
-        mutable size_t number_of_DUTs;
-        mutable std::vector<std::string> channels_names_list;
-        mutable std::map<int, std::vector<int> > _dut_channel_list;
+        static size_t _n_samples_per_waveform;
+        static size_t _sampling_frequency_MHz;
+        static size_t _n_duts;
+        static std::vector<std::string> _channel_names_list;
+        static std::map<int, std::vector<int> > _dut_channel_list;
         // DUT: [ (ch0-col-id, ch0-row-id), (ch1-col-id, ch1-row-id] , ... 
-        mutable std::map<int, std::vector<std::array<int,2> > > _dut_channel_arrangement;
-        mutable std::vector<std::string> DUTs_names;
+        static std::map<int, std::vector<std::array<int,2> > > _dut_channel_arrangement;
+        static std::vector<std::string> DUTs_names;
         // waveform_position[n_DUT][nxpixel][nypixel] = position where this waveform begins in the raw data.
-        mutable std::vector<std::vector<std::vector<size_t>>> waveform_position; 
+        static std::vector<std::vector<std::vector<size_t>>> waveform_position; 
 };
 
 namespace {
     auto dummy0 = eudaq::Factory<eudaq::StdEventConverter>::Register<CAENDT5748RawEvent2StdEventConverter>(CAENDT5748RawEvent2StdEventConverter::m_id_factory);
 }
 
+// Static data members to avoid loosing info (after initialization of data members)
+// [due to the re-creation of the instances each event?]
+size_t CAENDT5748RawEvent2StdEventConverter::_n_samples_per_waveform;
+size_t CAENDT5748RawEvent2StdEventConverter::_sampling_frequency_MHz;
+size_t CAENDT5748RawEvent2StdEventConverter::_n_duts;
+std::vector<std::string> CAENDT5748RawEvent2StdEventConverter::_channel_names_list;
+std::map<int, std::vector<int> > CAENDT5748RawEvent2StdEventConverter::_dut_channel_list;
+std::map<int, std::vector<std::array<int,2> > > CAENDT5748RawEvent2StdEventConverter::_dut_channel_arrangement;
+std::vector<std::string> CAENDT5748RawEvent2StdEventConverter::DUTs_names;
+std::vector<std::vector<std::vector<size_t>>> CAENDT5748RawEvent2StdEventConverter::waveform_position; 
+
 void CAENDT5748RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, eudaq::ConfigurationSPC conf) const {
     
     // XXX -- Identify the DUTS with the Channels
 
-    // XXX -- TBC: how is included this info in the produced. Could it be somehow not included?
-    n_samples_per_waveform = std::stoi(bore->GetTag("n_samples_per_waveform"));
-    sampling_frequency_MHz = std::stoi(bore->GetTag("sampling_frequency_MHz"));
-    number_of_DUTs = std::stoi(bore->GetTag("number_of_DUTs"));
-    // -- digitizer_record_length = std::stoi(bore->GetTag("record_length")); ??
+    // The record length
+    _n_samples_per_waveform = std::stoi(bore->GetTag("n_samples_per_waveform"));
+    // The sampling frequency
+    _sampling_frequency_MHz = std::stoi(bore->GetTag("sampling_frequency_MHz"));
+    // The number of DUTS
+    _n_duts = std::stoi(bore->GetTag("number_of_DUTs"));
     
     // XXX -- Is it needed this way? It could be implemented easily this info...
     // XXX -- TBC: into a function
@@ -60,15 +72,15 @@ void CAENDT5748RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, euda
     size_t pos = 0;
     while ((pos = s.find(delimiter)) != std::string::npos) {
         std::string token = s.substr(0, pos);
-        channels_names_list.push_back(token);
+        _channel_names_list.push_back(token);
         s.erase(0, pos + delimiter.length());
     }
     // And the last one...
-    channels_names_list.push_back(s);
+    _channel_names_list.push_back(s);
 
     // For each DUT, build a matrix where the elements are integer numbers specifying the 
     // position where the respective waveform begins in the raw data:
-    for (size_t n_DUT=0; n_DUT<number_of_DUTs; n_DUT++) {
+    for (size_t n_DUT=0; n_DUT<_n_duts; n_DUT++) {
         // XXX --- Needed?
         DUTs_names.push_back(bore->GetTag("DUT_"+std::to_string(n_DUT)+"_name"));
         // Gets something like e.g. `"[['CH4', 'CH5'], ['CH6', 'CH7']]"`.
@@ -225,6 +237,7 @@ std::cin.get();
         for(const auto & channel: dut_chlist.second) {
             const size_t n_block = channel;
             std::vector<float> raw_data = uint8VectorToFloatVector(event->GetBlock(n_block));
+
             // XXX -- Is this what we want? Or maybe extract the integral? 
             //        for sure we'd like to get the rise time as well?
             double amplitude = amplitude_from_waveform(raw_data);
