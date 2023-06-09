@@ -221,9 +221,9 @@ std::cin.get();
                 std::to_string(_channel_names_list.size()) + "). Blocks: "+
                 std::to_string(event->NumBlocks()) );
         return false;
-    }*/
+    }
 
-    // Each block is a channel
+    // Each DUT is a plane
     for(const auto & dut_chlist: _dut_channel_list) {
         // XXX -- Extract here the dut-id and do whatever you want to do
         const int dut_id = dut_chlist.first;        
@@ -244,8 +244,6 @@ std::cin.get();
             //        for sure we'd like to get the rise time as well?
             double amplitude = amplitude_from_waveform(raw_data);
         
-std::cout << _dut_channel_arrangement[dut_id].size() << " CHANNEL: " << channel << std::endl;
-std::cout << _dut_channel_arrangement[dut_id][channel].size() << " CHANNEL: " << channel << std::endl;
             plane.SetPixel(pixid, 
                     _dut_channel_arrangement[dut_id][channel][0],
                     _dut_channel_arrangement[dut_id][channel][1],
@@ -253,9 +251,9 @@ std::cout << _dut_channel_arrangement[dut_id][channel].size() << " CHANNEL: " <<
             
             // FIXME --- Hardcoded!
             std::vector<float> samples_times;
-            for(size_t n_sample=0; n_sample<n_samples_per_waveform; n_sample++) {
+            for(size_t n_sample=0; n_sample<_n_samples_per_waveform; n_sample++) {
                 // Convert back into seconds
-                samples_times.push_back(n_sample*sampling_frequency_MHz*1e6);
+                samples_times.push_back(n_sample*_sampling_frequency_MHz*1e6);
             }
 
             std::vector<double> wf(raw_data.begin(), raw_data.end());
