@@ -215,9 +215,11 @@ std::cout << "Number of blocks: " << event->NumBlocks() << " , event number: " <
     << std::endl;
 std::cin.get();
 
-    /*if(event->NumBlocks() != 1) {
-        EUDAQ_ERROR("One and only one data block per event is expected, but received an event with " + \
-                std::to_string(event->NumBlocks()) + " blocks.");
+    // Expecting one block per channel
+    if(event->NumBlocks() != _channel_names_list.size()) {
+        EUDAQ_ERROR("Expected one block per channel (n-channel: "+ 
+                std::to_string(_channel_names_list.size()) + "). Blocks: "+
+                std::to_string(event->NumBlocks()) );
         return false;
     }*/
 
