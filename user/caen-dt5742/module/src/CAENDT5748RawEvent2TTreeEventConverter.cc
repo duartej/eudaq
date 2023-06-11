@@ -1,6 +1,6 @@
 // -- XXX DOC 
 // -- 
-#include "eudaq/StdEventConverter.hh"
+#include "eudaq/TTreeEventConverter.hh"
 #include "eudaq/RawEvent.hh"
 #include "eudaq/Logger.hh"
 
@@ -11,18 +11,13 @@
 #include <algorithm>
 #include <regex>
 
-// XXX PROV
-#include <iterator>
-// XXX PROV
-//
-
-class CAENDT5748RawEvent2StdEventConverter: public eudaq::StdEventConverter {
+class CAENDT5748RawEvent2TTreeEventConverter: public eudaq::TTreeEventConverter {
     public:
-        bool Converting(eudaq::EventSPC d1, eudaq::StdEventSP d2, eudaq::ConfigSPC conf) const override;
+        bool Converting(eudaq::EventSPC d1, eudaq::TTreeEventSP d2, eudaq::ConfigSPC conf) const override;
         static const uint32_t m_id_factory = eudaq::cstr2hash("CAENDT5748");
 
     private:
-        void Initialize(eudaq::EventSPC bore, eudaq::ConfigurationSPC conf) const;
+        void Initialize(eudaq::EventSPC bore, eudaq::ConfigurationSPC conf, eudaq::TTreeEventSP d2) const;
         static size_t _n_samples_per_waveform;
         static size_t _sampling_frequency_MHz;
         static size_t _n_duts;
@@ -36,21 +31,21 @@ class CAENDT5748RawEvent2StdEventConverter: public eudaq::StdEventConverter {
 };
 
 namespace {
-    auto dummy0 = eudaq::Factory<eudaq::StdEventConverter>::Register<CAENDT5748RawEvent2StdEventConverter>(CAENDT5748RawEvent2StdEventConverter::m_id_factory);
+    auto dummy0 = eudaq::Factory<eudaq::TTreeEventConverter>::Register<CAENDT5748RawEvent2TTreeEventConverter>(CAENDT5748RawEvent2TTreeEventConverter::m_id_factory);
 }
 
 // Static data members to avoid loosing info (after initialization of data members)
 // [due to the re-creation of the instances each event?]
-size_t CAENDT5748RawEvent2StdEventConverter::_n_samples_per_waveform;
-size_t CAENDT5748RawEvent2StdEventConverter::_sampling_frequency_MHz;
-size_t CAENDT5748RawEvent2StdEventConverter::_n_duts;
-std::vector<std::string> CAENDT5748RawEvent2StdEventConverter::_channel_names_list;
-std::map<int, std::vector<int> > CAENDT5748RawEvent2StdEventConverter::_dut_channel_list;
-std::map<int, std::vector<std::array<int,2> > > CAENDT5748RawEvent2StdEventConverter::_dut_channel_arrangement;
-std::vector<std::string> CAENDT5748RawEvent2StdEventConverter::DUTs_names;
-std::vector<std::vector<std::vector<size_t>>> CAENDT5748RawEvent2StdEventConverter::waveform_position; 
+size_t CAENDT5748RawEvent2TTreeEventConverter::_n_samples_per_waveform;
+size_t CAENDT5748RawEvent2TTreeEventConverter::_sampling_frequency_MHz;
+size_t CAENDT5748RawEvent2TTreeEventConverter::_n_duts;
+std::vector<std::string> CAENDT5748RawEvent2TTreeEventConverter::_channel_names_list;
+std::map<int, std::vector<int> > CAENDT5748RawEvent2TTreeEventConverter::_dut_channel_list;
+std::map<int, std::vector<std::array<int,2> > > CAENDT5748RawEvent2TTreeEventConverter::_dut_channel_arrangement;
+std::vector<std::string> CAENDT5748RawEvent2TTreeEventConverter::DUTs_names;
+std::vector<std::vector<std::vector<size_t>>> CAENDT5748RawEvent2TTreeEventConverter::waveform_position; 
 
-void CAENDT5748RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, eudaq::ConfigurationSPC conf) const {
+void CAENDT5748RawEvent2TTreeEventConverter::Initialize(eudaq::EventSPC bore, eudaq::ConfigurationSPC conf, eudaq::TTreeEventSP d2) const {
     
     // XXX -- Identify the DUTS with the Channels
 
@@ -113,6 +108,9 @@ void CAENDT5748RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, euda
 
     }
 
+    // -- Creation of the Tree structure: Cannot be done here?
+    // XXX - must be done by directories per channel?
+
     // Debugging print-out stuff
     EUDAQ_DEBUG(" Initialize: nsamples_per_waveform: " + std::to_string(_n_samples_per_waveform) +
             ", sampling frequency: " + std::to_string(_sampling_frequency_MHz) + " MHz" +
@@ -141,7 +139,7 @@ void CAENDT5748RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, euda
     EUDAQ_DEBUG(" Initialize:"+oss.str());
 }
 
-std::vector<float> uint8VectorToFloatVector(std::vector<uint8_t> data) {
+std::vector<float> _uint8VectorToFloatVector(std::vector<uint8_t> data) {
     // Everything in this function, except for this single line, was provided to me by ChatGPT. Amazing.
     std::vector<float> result;
     // size the result vector appropriately
@@ -165,7 +163,7 @@ std::vector<float> uint8VectorToFloatVector(std::vector<uint8_t> data) {
     return result;
 }
 
-float median(std::vector<float>& vec) {
+float _median(std::vector<float>& vec) {
     std::sort(vec.begin(), vec.end());
     int size = vec.size();
     if (size % 2 == 0) {
@@ -175,17 +173,17 @@ float median(std::vector<float>& vec) {
     }
 }
 
-float max(const std::vector<float>& vec) {
+float _max(const std::vector<float>& vec) {
     auto it = std::max_element(vec.begin(), vec.end());
     return *it;
 }
 
-float amplitude_from_waveform(std::vector<float>& waveform) {
-    float base_line = median(waveform);
-    return max(waveform) - base_line;
+float _amplitude_from_waveform(std::vector<float>& waveform) {
+    float base_line = _median(waveform);
+    return _max(waveform) - base_line;
 }
 
-bool CAENDT5748RawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdEventSP d2, eudaq::ConfigSPC conf) const {
+bool CAENDT5748RawEvent2TTreeEventConverter::Converting(eudaq::EventSPC d1, eudaq::TTreeEventSP d2, eudaq::ConfigSPC conf) const {
 
     auto event = std::dynamic_pointer_cast<const eudaq::RawEvent>(d1);
     if (event == nullptr) {
@@ -196,29 +194,8 @@ bool CAENDT5748RawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq:
     // Beginning Of Run Event, this is the header event.
     if(event->IsBORE()) { 
         EUDAQ_INFO("Starting initialization...");
-        Initialize(event, conf);
+        Initialize(event, conf, d2);
     }
-
-/*std::cout << "Number of blocks: " << event->NumBlocks() << " , event number: " << event->GetEventN() 
-    << ", event id: " << event->GetEventID()
-    << ", stream N: " << event->GetStreamN()
-    << ", Run: " << event->GetRunNumber() 
-    << ", Type:" << event->GetType()
-    << ", Version:" << event->GetVersion()
-    << ", Flag:" << event->GetFlag()
-    << ", DeviceN:" << event->GetDeviceN()
-    << ", Trigger Number:" << event->GetTriggerN()
-    << ", Extend word:" << event->GetExtendWord()
-    << ", TS begin:" << event->GetTimestampBegin()
-    << ", TS end:" << event->GetTimestampEnd()
-    << ", Description:" << event->GetDescription()
-    << std::endl;
-
-std::cout << "Data members: No-channels:" << _channel_names_list.size() 
-    << " _dut_channel_list: " << _dut_channel_list.size()
-    << " Nsamples_per_wf: " << _n_samples_per_waveform
-    << " DUTS nameS: " << DUTs_names.size() << std::endl;
-std::cin.get();*/
 
     // Expecting one block per channel
     if(event->NumBlocks() != _channel_names_list.size()) {
@@ -231,28 +208,35 @@ std::cin.get();*/
     // Each DUT is a plane
     for(const auto & dut_chlist: _dut_channel_list) {
         // XXX -- Extract here the dut-id and do whatever you want to do
-        const int dut_id = dut_chlist.first;        
-        // Each DUT defines a plane
-        eudaq::StandardPlane plane(dut_id, DUTs_names[dut_id]);
-        // 
-        plane.SetSizeZS( (uint32_t)_dut_channel_arrangement[dut_id].size(), 
-                (uint32_t)_dut_channel_arrangement[dut_id].size(),
-                dut_chlist.second.size());
-        
+        int dut_id = dut_chlist.first;        
+       
+        // --> XXX NECESITAMOS Almacenar los blockes completos en vectores
+        //     el tree me crea una entrada por event (con trign, evtn ,timestamp, ...)
+         
         // Each channel is stored in a block
         uint8_t pixid = 0;
         for(const auto & channel: dut_chlist.second) {
             const size_t n_block = channel;
-            std::vector<float> raw_data = uint8VectorToFloatVector(event->GetBlock(n_block));
+            std::vector<float> raw_data = _uint8VectorToFloatVector(event->GetBlock(n_block));
 
             // XXX -- Is this what we want? Or maybe extract the integral? 
             //        for sure we'd like to get the rise time as well?
-            double amplitude = amplitude_from_waveform(raw_data);
+            double amplitude = _amplitude_from_waveform(raw_data);
         
-            plane.SetPixel(pixid, 
-                    _dut_channel_arrangement[dut_id][channel][0],
-                    _dut_channel_arrangement[dut_id][channel][1],
-                    amplitude);
+            //pixid, 
+            //        _dut_channel_arrangement[dut_id][channel][0],
+            //        _dut_channel_arrangement[dut_id][channel][1],
+            //        amplitude
+            TString b_dutid("dut_id");
+            if(d2->GetListOfBranches()->FindObject(b_dutid))
+            {
+                d2->SetBranchAddress(b_dutid, &dut_id);
+            }
+            else 
+            {
+                d2->Branch(b_dutid, &dut_id, "dut_id/I");
+            }
+
             
             // FIXME --- Hardcoded!
             std::vector<float> samples_times;
@@ -263,20 +247,9 @@ std::cin.get();*/
 
             std::vector<double> wf(raw_data.begin(), raw_data.end());
             // Set The Waveform
-            plane.SetWaveform(pixid, wf, samples_times[0], samples_times.back() );
             
             ++pixid;
-/*std::cout << " The Raw data for CH-" << channel << ": [size: " << raw_data.size() << "]: " ;
-for(const auto & dt: raw_data)
-{
-    std::cout << " " << dt ;
-}
-std::cout << std::endl;*/
         }
-        d2->AddPlane(plane);
     }
-/*d2->Print(std::cout);
-std::cin.get();*/
-
     return true;
 }
