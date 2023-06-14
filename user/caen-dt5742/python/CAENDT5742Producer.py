@@ -8,11 +8,12 @@ import ast
 
 # https://github.com/SengerM/CAENpy
 from CAENpy.CAENDigitizer import CAEN_DT5742_Digitizer
-from CAENpy.SimCAENDigitizer import FakeCAEN_DT5742_Digitizer
 import click
 
 import numpy as np
-
+import sys
+from pathlib import Path
+sys.path.insert(1, str((Path(__file__).parent.parent.parent.parent/'lib').resolve())) # Here is where `pyeudaq` lies.
 import pyeudaq
 from pyeudaq import EUDAQ_INFO, EUDAQ_ERROR
 
@@ -31,7 +32,7 @@ CAEN_DAQ = _DAQ()
 
 def parse_channels_mapping(channels_mapping_str:str):
     """Parse the `channels_mapping` config parameter and returns the 
-	expected dictionary. Also raises `ValueError` if anything is wrong.
+    expected dictionary. Also raises `ValueError` if anything is wrong.
 
     Parameters
     ----------
@@ -141,7 +142,7 @@ class CAENDT5742Producer(pyeudaq.Producer):
         # This is the order in which the data will be stored, i.e. which channel first, which second, etc.
         self.channels_names_list = sorted([self.channels_mapping[ch][i][j] 
                                            for ch in self.channels_mapping for i in range(len(self.channels_mapping[ch]))
-                                           for j in range(len(self.channels_mapping[ch][i]))]) 	
+                                           for j in range(len(self.channels_mapping[ch][i]))])  
         # Convert back into integers
         # Note the special case: trigger_group_0 -> 8  and trigger_group_1 --> 17
         self.channels_to_int = {}
@@ -211,7 +212,7 @@ class CAENDT5742Producer(pyeudaq.Producer):
         # Return inmediately if simulation
         if self.is_simulation:
             self._digitizer.stop_acquisition()
-
+        
         with self._CAEN_lock:
             self._digitizer.stop_acquisition()
         is_there_stuff_still_in_the_digitizer_memory = True
@@ -244,7 +245,6 @@ class CAENDT5742Producer(pyeudaq.Producer):
                 # XXX -- Need this new event type, or enough with the RawEvent?
                 event = pyeudaq.Event("RawEvent", "CAENDT5748")                
                 event.SetTriggerN(n_trigger)
-                
                 # BORE info
                 if n_trigger == 0:
                     event.SetBORE()
@@ -267,7 +267,7 @@ class CAENDT5742Producer(pyeudaq.Producer):
                         event.SetTag(f'{dut_label}_channels_arrangement', repr([f'{item}: {i},{j}' for i,row in enumerate(dut_channels) for j,item in enumerate(row)])) # End up with something of the form `"['CH0: 0,0', 'CH1: 0,1', 'CH2: 1,0', 'CH3: 1,1']"`
                         event.SetTag(f'{dut_label}_n_channels', repr(sum([len(_) for _ in dut_channels]))) # Number of channels (i.e. number of waveforms) belonging to this DUT.
                         n_dut += 1
-
+                
                 # -- XXX - THe CHannel will give the information of thee position in x/y of the pad
                 #          within the DUT
                 # Extract the waveforms
@@ -277,25 +277,20 @@ class CAENDT5742Producer(pyeudaq.Producer):
                     serialized_data = serialized_data.tobytes()
                     # Use the channel as Block Id
                     event.AddBlock(self.channels_to_int[ch], serialized_data)
-                
                 self.SendEvent(event)
                 n_trigger += 1
                 self.events_queue.task_done()
 
         threading.Thread(target=thread_target_function, daemon=True).start()
 
-        while(self.is_running):
+        while self.is_running:
             with self._CAEN_lock:
                 if self._digitizer.get_acquisition_status()['at least one event available for readout'] == True:
                     waveforms = self._digitizer.get_waveforms(get_time=False, get_ADCu_instead_of_volts=True)
                     # Waveforms is a list of dictionaries, each of which contains the waveforms from each trigger.
                     for this_trigger_waveforms in waveforms:
                         self.events_queue.put(this_trigger_waveforms)
-                else:
-                    # XXX -- Cross check that's correct (or only for simulation?)
-                    # then elif self.is_simulation:
-                    break
-
+            time.sleep(1e-6) # This small delay is so that the lock can be acquired by other threads, otherwise it goes so fast that no one else can acquire it other than by chance.
 
 @click.command()
 @click.option('-n','--name', default='CAEN_digitizer',
