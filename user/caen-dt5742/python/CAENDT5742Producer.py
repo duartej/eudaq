@@ -98,7 +98,15 @@ class CAENDT5742Producer(pyeudaq.Producer):
             raise RuntimeError(f'`LinkNum` (int) parameter is mandatory in the init file.')
         except ValueError:
             raise ValueError(f'`LinkNum` must be an integer')
+        
+        expected_serial_number = initconf.get('expected_serial_number')
+        
         self._digitizer = CAEN_DAQ(LinkNum=LinkNum)
+        
+        if expected_serial_number is not None:
+            actual_serial_number = str(self._digitizer.get_info()['SerialNumber'])
+            if expected_serial_number != actual_serial_number:
+                raise RuntimeError(f'You told me to connect to a CAEN digitizer with serial number {repr(expected_serial_number)} but instead in `LinkNum` {repr(LinkNum)} I found one with serial number {repr(actual_serial_number)}. If you are using more than one digitizer, probably you have wrong the `LinkNum`.')
 
     @exception_handler
     def DoConfigure(self):
