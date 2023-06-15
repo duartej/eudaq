@@ -279,9 +279,16 @@ class CAENDT5742Producer(pyeudaq.Producer):
                 # -- XXX - THe CHannel will give the information of thee position in x/y of the pad
                 #          within the DUT
                 # Extract the waveforms
-                this_trigger_waveforms = self.events_queue.get()
+                try:
+                    this_trigger_waveforms = self.events_queue.get_nowait()
+                except queue.Empty:
+                    if self.is_running:
+                        continue
+                    else:
+                        break
+                
                 for ch in self.channels_names_list:
-                    serialized_data = np.array( this_trigger_waveforms[ch]['Amplitude (ADCu)'], dtype=np.float32)
+                    serialized_data = np.array(this_trigger_waveforms[ch]['Amplitude (ADCu)'], dtype=np.float32)
                     serialized_data = serialized_data.tobytes()
                     # Use the channel as Block Id
                     event.AddBlock(self.channels_to_int[ch], serialized_data)
