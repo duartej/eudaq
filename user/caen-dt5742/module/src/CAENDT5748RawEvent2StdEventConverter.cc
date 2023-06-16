@@ -27,14 +27,12 @@ class CAENDT5748RawEvent2StdEventConverter: public eudaq::StdEventConverter {
         static size_t _n_digitizers;
         static size_t _n_samples_per_waveform;
         static size_t _sampling_frequency_MHz;
-        static size_t _n_duts;
-        static std::vector<std::string> _channel_names_list;
+        static std::map<int, size_t> _n_duts;
+        static std::map<int, std::vector<std::string> > _channel_names_list;
         static std::map<int, std::vector<int> > _dut_channel_list;
         // DUT: [ (ch0-col-id, ch0-row-id), (ch1-col-id, ch1-row-id] , ... 
         static std::map<int, std::vector<std::array<int,2> > > _dut_channel_arrangement;
-        static std::vector<std::string> DUTs_names;
-        // waveform_position[n_DUT][nxpixel][nypixel] = position where this waveform begins in the raw data.
-        static std::vector<std::vector<std::vector<size_t>>> waveform_position; 
+        static std::map<int, std::vector<std::string> > DUTs_names;
 };
 
 namespace {
@@ -47,21 +45,22 @@ std::map<int,std::string> CAENDT5748RawEvent2StdEventConverter::_name;
 size_t CAENDT5748RawEvent2StdEventConverter::_n_digitizers = 0;
 size_t CAENDT5748RawEvent2StdEventConverter::_n_samples_per_waveform;
 size_t CAENDT5748RawEvent2StdEventConverter::_sampling_frequency_MHz;
-size_t CAENDT5748RawEvent2StdEventConverter::_n_duts;
-std::vector<std::string> CAENDT5748RawEvent2StdEventConverter::_channel_names_list;
+std::map<int, size_t> CAENDT5748RawEvent2StdEventConverter::_n_duts;
+std::map<int, std::vector<std::string> > CAENDT5748RawEvent2StdEventConverter::_channel_names_list;
 std::map<int, std::vector<int> > CAENDT5748RawEvent2StdEventConverter::_dut_channel_list;
 std::map<int, std::vector<std::array<int,2> > > CAENDT5748RawEvent2StdEventConverter::_dut_channel_arrangement;
-std::vector<std::string> CAENDT5748RawEvent2StdEventConverter::DUTs_names;
-std::vector<std::vector<std::vector<size_t>>> CAENDT5748RawEvent2StdEventConverter::waveform_position; 
+std::map<int, std::vector<std::string> > CAENDT5748RawEvent2StdEventConverter::DUTs_names;
 
 void CAENDT5748RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, eudaq::ConfigurationSPC conf) const {
+    
+    const int device_id = bore->GetDeviceN();
     
     // How many times are initializing = Digitizers present in the event
     // FIXME -- Use the DeviceN id?
     ++_n_digitizers;
     
     // Name of the producer
-    _name[bore->GetDeviceN()] = bore->GetTag("producer_name");
+    _name[device_id] = bore->GetTag("producer_name");
 
     // XXX -- Identify the DUTS with the Channels
 
@@ -70,7 +69,7 @@ void CAENDT5748RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, euda
     // The sampling frequency
     _sampling_frequency_MHz = std::stoi(bore->GetTag("sampling_frequency_MHz"));
     // The number of DUTS
-    _n_duts = std::stoi(bore->GetTag("number_of_DUTs"));
+    _n_duts[device_id] = std::stoi(bore->GetTag("number_of_DUTs"));
     
     // XXX -- Is it needed this way? It could be implemented easily this info...
     // XXX -- TBC: into a function
@@ -81,23 +80,23 @@ void CAENDT5748RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, euda
     }
     std::string delimiter = ", ";
     size_t pos = 0;
-    while ((pos = s.find(delimiter)) != std::string::npos) {
+    while((pos = s.find(delimiter)) != std::string::npos) {
         std::string token = s.substr(0, pos);
-        _channel_names_list.push_back(token);
+        _channel_names_list[device_id].push_back(token);
         s.erase(0, pos + delimiter.length());
     }
     // And the last one...
-    _channel_names_list.push_back(s);
+    _channel_names_list[device_id].push_back(s);
 
     // For each DUT, build a matrix where the elements are integer numbers specifying the 
     // position where the respective waveform begins in the raw data:
-    for (size_t n_DUT=0; n_DUT<_n_duts; n_DUT++) {
+    for (size_t n_DUT=0; n_DUT<_n_duts[device_id]; n_DUT++) {
         // XXX --- Needed?
-        DUTs_names.push_back(bore->GetTag("DUT_"+std::to_string(_n_digitizers)+"_"+std::to_string(n_DUT)+"_name"));
+        DUTs_names[device_id].push_back(bore->GetTag("DUT_"+std::to_string(n_DUT)+"_name"));
         // Gets something like e.g. `"[['CH4', 'CH5'], ['CH6', 'CH7']]"`.
         s = bore->GetTag("DUT_"+std::to_string(n_DUT)+"_channels_matrix");
         if (s.empty()) {
-            EUDAQ_THROW("Cannot get information about the channels to which the DUT named \""+DUTs_names[n_DUT]+"\" was connected.");
+            EUDAQ_THROW("Cannot get information about the channels to which the DUT named \""+DUTs_names[device_id][n_DUT]+"\" was connected.");
         }
 
         // Identify the channels for this DUT
@@ -123,20 +122,23 @@ void CAENDT5748RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, euda
         }
 
     }
+std::ostringstream ossa;
+std::copy(DUTs_names[device_id].begin(), DUTs_names[device_id].end(), std::ostream_iterator<std::string>(ossa, " "));
+std::cout << " Initialize: DUSTs list-[ " << ossa.str() << "]" << std::endl;
 
     // Debugging print-out stuff
     EUDAQ_DEBUG(" Initialize: nsamples_per_waveform: " + std::to_string(_n_samples_per_waveform) +
             ", sampling frequency: " + std::to_string(_sampling_frequency_MHz) + " MHz" +
-            ", number of DUTs: " + std::to_string(_n_duts));
+            ", number of DUTs: " + std::to_string(_n_duts[device_id]));
     // Get the list of channels
     std::ostringstream oss;
-    std::copy(_channel_names_list.begin(), _channel_names_list.end(), std::ostream_iterator<std::string>(oss, " "));
+    std::copy(_channel_names_list[device_id].begin(), _channel_names_list[device_id].end(), std::ostream_iterator<std::string>(oss, " "));
     EUDAQ_DEBUG(" Initialize: Channel names list-[ " + oss.str() +"]");
     // And the DUTs
     // clear first the oss
     oss.str("");
     oss.clear();
-    std::copy(DUTs_names.begin(), DUTs_names.end(), std::ostream_iterator<std::string>(oss, " ")) ;
+    std::copy(DUTs_names[device_id].begin(), DUTs_names[device_id].end(), std::ostream_iterator<std::string>(oss, " ")) ;
     EUDAQ_DEBUG(" Initialize: DUT names-["+oss.str()+"]");
     oss.str("");
     oss.clear();
@@ -210,7 +212,9 @@ bool CAENDT5748RawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq:
         Initialize(event, conf);
     }
 
-/*std::cout << "Number of blocks: " << event->NumBlocks() << " , event number: " << event->GetEventN() 
+    const int dev_id = event->GetDeviceN();
+
+std::cout << "Number of blocks: " << event->NumBlocks() << " , event number: " << event->GetEventN() 
     << ", event id: " << event->GetEventID()
     << ", stream N: " << event->GetStreamN()
     << ", Run: " << event->GetRunNumber() 
@@ -218,6 +222,7 @@ bool CAENDT5748RawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq:
     << ", Version:" << event->GetVersion()
     << ", Flag:" << event->GetFlag()
     << ", DeviceN:" << event->GetDeviceN()
+    << ", N-subEvents:" << event->GetNumSubEvent()
     << ", Trigger Number:" << event->GetTriggerN()
     << ", Extend word:" << event->GetExtendWord()
     << ", TS begin:" << event->GetTimestampBegin()
@@ -225,18 +230,27 @@ bool CAENDT5748RawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq:
     << ", Description:" << event->GetDescription()
     << std::endl;
 
-std::cout << "Data members: No-channels:" << _channel_names_list.size() 
+std::cout << " ESTOY-1" <<std::endl;
+std::cout << "Data members: No-channels:" << _channel_names_list[dev_id].size() 
     << " _dut_channel_list: " << _dut_channel_list.size()
     << " Nsamples_per_wf: " << _n_samples_per_waveform
-    << " DUTS nameS: " << DUTs_names.size() << std::endl;
-std::cin.get();*/
+    << " DUTS names: " << DUTs_names[dev_id].size() << "[";
+for(auto & kk: DUTs_names[dev_id])
+{
+    std::cout << " " << kk ;
+}
+std::cout << " ]" << std::endl;
+
+std::cin.get();
 
     // Expecting one block per channel
-    if(event->NumBlocks() != _channel_names_list.size()) {
+    // XXX - Should be right, remember to uncomment
+    if(event->NumBlocks() != _channel_names_list[dev_id].size()) {
         EUDAQ_ERROR("Expected one block per channel (n-channel: "+ 
                 std::to_string(_channel_names_list.size()) + "). Blocks: "+
                 std::to_string(event->NumBlocks()) );
         return false;
+    }
 
     d2->SetDetectorType("CAEN5748");
     
@@ -266,6 +280,13 @@ std::cin.get();*/
         for(const auto & channel: dut_chlist.second) {
             const size_t n_block = channel;
             std::vector<float> raw_data = uint8VectorToFloatVector(event->GetBlock(n_block));
+
+            // XXX -- Make this sense? Just to avoid crashing... [PROV]
+            if(raw_data.size() == 0)
+            {
+                ++pixid;
+                continue;
+            }
 
             // XXX -- Is this what we want? Or maybe extract the integral? 
             //        for sure we'd like to get the rise time as well?
@@ -302,3 +323,5 @@ std::cin.get();*/
 
     return true;
 }
+
+
