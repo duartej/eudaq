@@ -88,6 +88,8 @@ class CAENDT5742Producer(pyeudaq.Producer):
             _DAQ._actual_daq = CAEN_DT5742_Digitizer
             self.is_simulation = False
         
+        self._name = name
+        
     @exception_handler
     def DoInitialise(self):
         initconf = self.GetInitConfiguration().as_dict()
@@ -274,6 +276,8 @@ class CAENDT5742Producer(pyeudaq.Producer):
                         event.SetTag(f'{dut_label}_channels_arrangement', repr([f'{item}: {i},{j}' for i,row in enumerate(dut_channels) for j,item in enumerate(row)])) # End up with something of the form `"['CH0: 0,0', 'CH1: 0,1', 'CH2: 1,0', 'CH3: 1,1']"`
                         event.SetTag(f'{dut_label}_n_channels', repr(sum([len(_) for _ in dut_channels]))) # Number of channels (i.e. number of waveforms) belonging to this DUT.
                         n_dut += 1
+                    
+                    event.SetTag(f'producer_name', str(self._name))
                 
                 # -- XXX - THe CHannel will give the information of thee position in x/y of the pad
                 #          within the DUT
