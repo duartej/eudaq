@@ -153,13 +153,17 @@ class CAENDT5742Producer(pyeudaq.Producer):
                                            for ch in self.channels_mapping for i in range(len(self.channels_mapping[ch]))
                                            for j in range(len(self.channels_mapping[ch][i]))])  
         # Convert back into integers
-        # Note the special case: trigger_group_0 -> 8  and trigger_group_1 --> 17
+        # Note the special case: trigger_group_0 -> 16  and trigger_group_1 --> 17
         self.channels_to_int = {}
         for ch in self.channels_names_list:
             try:
                 self.channels_to_int[ch] =  int(ch.replace('CH','')) 
             except ValueError:
-                self.channels_to_int[ch] = 8 if ch == 'trigger_group_0' else 17 
+                if ch == 'trigger_group_0':
+                    self.channels_to_int[ch] = 16
+                if ch == 'trigger_group_1':
+                    self.channels_to_int[ch] = 17
+                
         
         # Parse parameters and raise errors if necessary:
         for param_name, param_dict in CONFIGURE_PARAMS.items():
@@ -194,8 +198,8 @@ class CAENDT5742Producer(pyeudaq.Producer):
         self._digitizer.set_fast_trigger_mode(enabled=True)
         self._digitizer.set_fast_trigger_digitizing(enabled=True)
         self._digitizer.enable_channels(
-                group_1=any([f'CH{n}' in self.channels_names_list for n in [0,1,2,3,4,5,6,7]]), 
-                group_2=any([f'CH{n}' in self.channels_names_list for n in [8,9,10,11,12,13,14,15]])
+                group_1=any([f'CH{n}' in self.channels_names_list for n in [0,1,2,3,4,5,6,7]] + ['trigger_group_0']), 
+                group_2=any([f'CH{n}' in self.channels_names_list for n in [8,9,10,11,12,13,14,15]] + ['trigger_group_1'])
                 )
         self._digitizer.set_fast_trigger_DC_offset(V=0)
         
