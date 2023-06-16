@@ -22,7 +22,6 @@ import queue
 import threading 
 import time
 
-
 # Variable to allow the use the real DAQ or a simulation
 class _DAQ(object):
     _actual_daq = None
@@ -279,23 +278,19 @@ class CAENDT5742Producer(pyeudaq.Producer):
                 # -- XXX - THe CHannel will give the information of thee position in x/y of the pad
                 #          within the DUT
                 # Extract the waveforms
-                try:
-                    this_trigger_waveforms = self.events_queue.get_nowait()
-                except queue.Empty:
-                    if self.is_running:
-                        continue
-                    else:
-                        break
-                
-                for ch in self.channels_names_list:
-                    serialized_data = np.array(this_trigger_waveforms[ch]['Amplitude (ADCu)'], dtype=np.float32)
-                    serialized_data = serialized_data.tobytes()
-                    # Use the channel as Block Id
-                    event.AddBlock(self.channels_to_int[ch], serialized_data)
-                self.SendEvent(event)
-                n_trigger += 1
-                self.events_queue.task_done()
-
+                if not self.events_queue.empty():
+                    this_trigger_waveforms = self.events_queue.get()
+                    
+                    for ch in self.channels_names_list:
+                        serialized_data = np.array(this_trigger_waveforms[ch]['Amplitude (ADCu)'], dtype=np.float32)
+                        serialized_data = serialized_data.tobytes()
+                        # Use the channel as Block Id
+                        event.AddBlock(self.channels_to_int[ch], serialized_data)
+                        
+                    self.SendEvent(event)
+                    n_trigger += 1
+                    self.events_queue.task_done()
+            
         threading.Thread(target=thread_target_function, daemon=True).start()
 
         while self.is_running:
