@@ -276,6 +276,10 @@ class CAENDT5742Producer(pyeudaq.Producer):
                 'trigger_id_channel_name': self.channels_mapping['trigger_id'][0][0],
                 'trigger_channel_names': self.channels_mapping['trigger'][0],
             }
+            try:
+                self.n_bits_to_use_when_decoding_trigger_id_from_waveform = int(conf['n_bits_to_use_when_decoding_trigger_id_from_waveform'])
+            except Exception:
+                raise RuntimeError(f'The "trigger ID parsing mode" was enabled by providing the appropriate DUTs names, but there is an error parsing `n_bits_to_use_when_decoding_trigger_id_from_waveform`, which must be an integer number.')
             EUDAQ_INFO(f'Trigger ID decoding was configured. ✅')
         
     @exception_handler
@@ -315,6 +319,9 @@ class CAENDT5742Producer(pyeudaq.Producer):
 
         def thread_target_function():
             n_trigger = 0
+            previous_decoded_trigger_id = None
+            have_to_decode_trigger_id = hasattr(self, '_trigger_id_decoding_config')
+            decoded_trigger_number_of_turns = 0
             while self.is_running:
                 # Creation of the caen event type and sub-type 
                 #event = pyeudaq.Event("CAENDT5748RawEvent", "CAENDT5748")
@@ -367,6 +374,23 @@ class CAENDT5742Producer(pyeudaq.Producer):
                     )
                     
                     print('n_trigger', n_trigger, 'decoded', decoded_trigger_id)
+                    if have_to_decode_trigger_id:
+                        decoded_trigger_id = decode_trigger_id(
+                            trigger_id_waveform = this_trigger_waveforms[self._trigger_id_decoding_config['trigger_id_channel_name']]['Amplitude (ADCu)'],
+                            clock_waveform = this_trigger_waveforms[self._trigger_id_decoding_config['TLU_clock_channel_name']]['Amplitude (ADCu)'],
+                            trigger_waveform = this_trigger_waveforms[self._trigger_id_decoding_config['trigger_channel_names'][0]]['Amplitude (ADCu)'],
+                            clock_edge_to_use = 'falling', # Hardcoded here, but seems to be the right one to use.
+                        )
+                        if decoded_trigger_id == 0 and previous_decoded_trigger_id is not None:
+                            _ = previous_decoded_trigger_id + 1
+                            if (_ & (_-1) == 0) and _ != 0: # if _ is a power of 2:
+                                decoded_trigger_number_of_turns += 1
+                            else:
+                                self.is_running = False
+                                raise RuntimeError(f'The decoded trigger does not coincide with the internally counted triggers. (n_internal={n_trigger})')
+                        decoded_trigger_id = decoded_trigger_id + 2**self.n_bits_to_use_when_decoding_trigger_id_from_waveform*decoded_trigger_number_of_turns
+                        print('n_trigger', n_trigger, 'decoded', decoded_trigger_id)
+                        previous_decoded_trigger_id = decoded_trigger_id
                     
                     self.SendEvent(event)
                     self.events_queue.task_done()
