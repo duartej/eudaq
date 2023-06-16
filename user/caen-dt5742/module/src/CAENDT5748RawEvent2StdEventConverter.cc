@@ -23,6 +23,8 @@ class CAENDT5748RawEvent2StdEventConverter: public eudaq::StdEventConverter {
 
     private:
         void Initialize(eudaq::EventSPC bore, eudaq::ConfigurationSPC conf) const;
+        static std::map<int, std::string> _name;
+        static size_t _n_digitizers;
         static size_t _n_samples_per_waveform;
         static size_t _sampling_frequency_MHz;
         static size_t _n_duts;
@@ -41,6 +43,8 @@ namespace {
 
 // Static data members to avoid loosing info (after initialization of data members)
 // [due to the re-creation of the instances each event?]
+std::map<int,std::string> CAENDT5748RawEvent2StdEventConverter::_name;
+size_t CAENDT5748RawEvent2StdEventConverter::_n_digitizers = 0;
 size_t CAENDT5748RawEvent2StdEventConverter::_n_samples_per_waveform;
 size_t CAENDT5748RawEvent2StdEventConverter::_sampling_frequency_MHz;
 size_t CAENDT5748RawEvent2StdEventConverter::_n_duts;
@@ -52,6 +56,13 @@ std::vector<std::vector<std::vector<size_t>>> CAENDT5748RawEvent2StdEventConvert
 
 void CAENDT5748RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, eudaq::ConfigurationSPC conf) const {
     
+    // How many times are initializing = Digitizers present in the event
+    // FIXME -- Use the DeviceN id?
+    ++_n_digitizers;
+    
+    // Name of the producer
+    _name[bore->GetDeviceN()] = bore->GetTag("producer_name");
+
     // XXX -- Identify the DUTS with the Channels
 
     // The record length
@@ -82,7 +93,7 @@ void CAENDT5748RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, euda
     // position where the respective waveform begins in the raw data:
     for (size_t n_DUT=0; n_DUT<_n_duts; n_DUT++) {
         // XXX --- Needed?
-        DUTs_names.push_back(bore->GetTag("DUT_"+std::to_string(n_DUT)+"_name"));
+        DUTs_names.push_back(bore->GetTag("DUT_"+std::to_string(_n_digitizers)+"_"+std::to_string(n_DUT)+"_name"));
         // Gets something like e.g. `"[['CH4', 'CH5'], ['CH6', 'CH7']]"`.
         s = bore->GetTag("DUT_"+std::to_string(n_DUT)+"_channels_matrix");
         if (s.empty()) {
@@ -187,7 +198,7 @@ float amplitude_from_waveform(std::vector<float>& waveform) {
 
 bool CAENDT5748RawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdEventSP d2, eudaq::ConfigSPC conf) const {
 
-    auto event = std::dynamic_pointer_cast<const eudaq::RawEvent>(d1);
+    auto event = std::dynamic_pointer_cast<const eudaq::RawDataEvent>(d1);
     if (event == nullptr) {
         EUDAQ_ERROR("Received null event.");
         return false;
@@ -226,14 +237,25 @@ std::cin.get();*/
                 std::to_string(_channel_names_list.size()) + "). Blocks: "+
                 std::to_string(event->NumBlocks()) );
         return false;
+
+    d2->SetDetectorType("CAEN5748");
+    
+    if(!d2->IsFlagPacket()) {
+        d2->SetFlag(d1->GetFlag());
+        d2->SetRunN(d1->GetRunN());
+        d2->SetEventN(d1->GetEventN());
+        d2->SetStreamN(d1->GetStreamN());
+        d2->SetTriggerN(d1->GetTriggerN(), d1->IsFlagTrigger());
+        d2->SetTimestamp(d1->GetTimestampBegin(), d1->GetTimestampEnd(), d1->IsFlagTimestamp());
     }
 
+    const std::string producer_name = _name[d1->GetDeviceN()];
     // Each DUT is a plane
     for(const auto & dut_chlist: _dut_channel_list) {
         // XXX -- Extract here the dut-id and do whatever you want to do
         const int dut_id = dut_chlist.first;        
         // Each DUT defines a plane
-        eudaq::StandardPlane plane(dut_id, DUTs_names[dut_id]);
+        eudaq::StandardPlane plane(dut_id, "CAEN5748", producer_name);
         // 
         plane.SetSizeZS( (uint32_t)_dut_channel_arrangement[dut_id].size(), 
                 (uint32_t)_dut_channel_arrangement[dut_id].size(),
