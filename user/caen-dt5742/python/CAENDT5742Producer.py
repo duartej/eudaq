@@ -316,7 +316,7 @@ class CAENDT5742Producer(pyeudaq.Producer):
     @exception_handler
     def RunLoop(self):
         self.events_queue = queue.Queue()
-
+        
         def thread_target_function():
             n_trigger = 0
             previous_decoded_trigger_id = None
@@ -326,7 +326,7 @@ class CAENDT5742Producer(pyeudaq.Producer):
                 # Creation of the caen event type and sub-type 
                 #event = pyeudaq.Event("CAENDT5748RawEvent", "CAENDT5748")
                 # XXX -- Need this new event type, or enough with the RawEvent?
-                event = pyeudaq.Event("RawEvent", "CAENDT5748")                
+                event = pyeudaq.Event("RawEvent", "CAENDT5748")
                 event.SetTriggerN(n_trigger)
                 # BORE info
                 if n_trigger == 0:
@@ -366,30 +366,20 @@ class CAENDT5742Producer(pyeudaq.Producer):
                         # Use the channel as Block Id
                         event.AddBlock(self.channels_to_int[ch], serialized_data)
                         
-                    decoded_trigger_id = decode_trigger_id(
-                        trigger_id_waveform = this_trigger_waveforms[self._trigger_id_decoding_config['trigger_id_channel_name']]['Amplitude (ADCu)'],
-                        clock_waveform = this_trigger_waveforms[self._trigger_id_decoding_config['TLU_clock_channel_name']]['Amplitude (ADCu)'],
-                        trigger_waveform = this_trigger_waveforms[self._trigger_id_decoding_config['trigger_channel_names'][0]]['Amplitude (ADCu)'],
-                        clock_edge_to_use = 'falling', # Hardcoded here, but seems to be the right one to use.
-                    )
                     
-                    print('n_trigger', n_trigger, 'decoded', decoded_trigger_id)
                     if have_to_decode_trigger_id:
-                        decoded_trigger_id = decode_trigger_id(
+                        raw_decoded_trigger_id = decode_trigger_id(
                             trigger_id_waveform = this_trigger_waveforms[self._trigger_id_decoding_config['trigger_id_channel_name']]['Amplitude (ADCu)'],
                             clock_waveform = this_trigger_waveforms[self._trigger_id_decoding_config['TLU_clock_channel_name']]['Amplitude (ADCu)'],
                             trigger_waveform = this_trigger_waveforms[self._trigger_id_decoding_config['trigger_channel_names'][0]]['Amplitude (ADCu)'],
                             clock_edge_to_use = 'falling', # Hardcoded here, but seems to be the right one to use.
                         )
-                        if decoded_trigger_id == 0 and previous_decoded_trigger_id is not None:
-                            _ = previous_decoded_trigger_id + 1
-                            if (_ & (_-1) == 0) and _ != 0: # if _ is a power of 2:
+                        if raw_decoded_trigger_id == 0 and previous_decoded_trigger_id is not None:
+                            if (previous_decoded_trigger_id+1)%(2**self.n_bits_to_use_when_decoding_trigger_id_from_waveform+1): # if this trigger is supposed to be a multiple of the loop size (given by the number of bits)...
                                 decoded_trigger_number_of_turns += 1
-                            else:
-                                self.is_running = False
-                                raise RuntimeError(f'The decoded trigger does not coincide with the internally counted triggers. (n_internal={n_trigger})')
-                        decoded_trigger_id = decoded_trigger_id + 2**self.n_bits_to_use_when_decoding_trigger_id_from_waveform*decoded_trigger_number_of_turns
-                        print('n_trigger', n_trigger, 'decoded', decoded_trigger_id)
+                        decoded_trigger_id = raw_decoded_trigger_id + (2**self.n_bits_to_use_when_decoding_trigger_id_from_waveform)*decoded_trigger_number_of_turns
+                        if decoded_trigger_id != n_trigger:
+                            EUDAQ_INFO(f'⚠️ The decoded trigger does not coincide with the internally counted triggers. (n_internal={n_trigger}, n_decoded={decoded_trigger_id})')
                         previous_decoded_trigger_id = decoded_trigger_id
                     
                     self.SendEvent(event)
