@@ -22,6 +22,10 @@ import queue
 import threading 
 import time
 
+DEBUG_WAVEFORMS_DUMPING = True
+if DEBUG_WAVEFORMS_DUMPING:
+    import pandas
+
 # Variable to allow the use the real DAQ or a simulation
 class _DAQ(object):
     _actual_daq = None
@@ -318,6 +322,8 @@ class CAENDT5742Producer(pyeudaq.Producer):
         self.events_queue = queue.Queue()
         
         def thread_target_function():
+            if DEBUG_WAVEFORMS_DUMPING:
+                waveforms_to_dump = []
             n_trigger = 0
             previous_decoded_trigger_id = None
             have_to_decode_trigger_id = hasattr(self, '_trigger_id_decoding_config')
@@ -366,6 +372,11 @@ class CAENDT5742Producer(pyeudaq.Producer):
                         # Use the channel as Block Id
                         event.AddBlock(self.channels_to_int[ch], serialized_data)
                         
+                        if DEBUG_WAVEFORMS_DUMPING:
+                            df = pandas.DataFrame(this_trigger_waveforms[ch])
+                            df['channel'] = ch
+                            df['n_trigger'] = n_trigger
+                            waveforms_to_dump.append(df)
                     
                     if have_to_decode_trigger_id:
                         raw_decoded_trigger_id = decode_trigger_id(
@@ -384,6 +395,10 @@ class CAENDT5742Producer(pyeudaq.Producer):
                     
                     self.SendEvent(event)
                     self.events_queue.task_done()
+            
+            if DEBUG_WAVEFORMS_DUMPING and len(waveforms_to_dump) > 0:
+                waveforms_to_dump = pandas.concat(waveforms_to_dump)
+                waveforms_to_dump.to_pickle(f'~/Desktop/waveforms_CAEN_{str(self._digitizer.get_info()["SerialNumber"])}.pickle')
             
         threading.Thread(target=thread_target_function, daemon=True).start()
 
