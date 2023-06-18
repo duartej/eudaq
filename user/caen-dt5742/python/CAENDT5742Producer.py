@@ -161,26 +161,26 @@ class CAENDT5742Producer(pyeudaq.Producer):
     def DoConfigure(self):
         CONFIGURE_PARAMS = {
                 'sampling_frequency_MHz': dict(
-                    set_method = 'set_sampling_frequency',
+                    set_method = self._digitizer.set_sampling_frequency,
                     default = 5000,
                     type = int,
                     ),
                 'max_num_events_BLT': dict(
-                    set_method = 'set_max_num_events_BLT',
+                    set_method = self._digitizer.set_max_num_events_BLT,
                     default = 1,
                     type = int,
                     ),
                 'record_length': dict(
-                    set_method = 'set_record_length',
+                    set_method = self._digitizer.set_record_length,
                     default = 1024,
                     type = int,
                     ),
                 'fast_trigger_threshold_ADCu': dict(
-                    set_method = 'set_fast_trigger_threshold',
+                    set_method = self._digitizer.set_fast_trigger_threshold,
                     type = int,
                     ),
                 'post_trigger_size': dict(
-                    set_method = 'set_post_trigger_size',
+                    set_method = self._digitizer.set_post_trigger_size,
                     default = 1,
                     type = int,
                     ),
@@ -231,7 +231,7 @@ class CAENDT5742Producer(pyeudaq.Producer):
                 raise ValueError(f'The parameter `{param_name}` must be of type {param_dict["type"]}, '\
                         'received {repr(received_param_value)}. ')
             if param_dict.get('set_method') is not None:
-                getattr(self._digitizer, param_dict['set_method'])(param_value)
+                param_dict['set_method'](param_value)
             else:
                 # This is just for trigger polarity.. XXX -- Is this needed?
                 param_dict['value'] = param_value
