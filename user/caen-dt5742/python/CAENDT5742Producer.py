@@ -22,15 +22,14 @@ import queue
 import threading 
 import time
 
-DEBUG_WAVEFORMS_DUMPING = True
-LOCATION_FOR_DUMPING_DATA = Path.home()/'Desktop/data'
-if DEBUG_WAVEFORMS_DUMPING:
-    import pandas
-    import datetime
-    
-    def create_a_timestamp():
-        return datetime.datetime.now().strftime("%Y%m%d%H%M")
-    
+import pandas
+
+# Debugging imports:
+# ~ import pandas
+# ~ import warnings
+
+CAEN_CHANNELS_NAMES = [f'CH{_}' for _ in range(16)] + [f'trigger_group_{_}' for _ in [0,1]]
+
 # Variable to allow the use the real DAQ or a simulation
 class _DAQ(object):
     _actual_daq = None
@@ -38,39 +37,28 @@ class _DAQ(object):
         return _DAQ._actual_daq(*values,**kwd)
 CAEN_DAQ = _DAQ()
 
-def parse_channels_mapping(channels_mapping_str:str):
-    """Parse the `channels_mapping` config parameter and returns the 
-    expected dictionary. Also raises `ValueError` if anything is wrong.
-
-    Parameters
-    ----------
-    channels_mapping_str: str
-        XXX -- DOC -> WHAT's those mapping?
-
-    Return
-    ------
-
-    """
-    try:
-        channels_mapping = ast.literal_eval(channels_mapping_str)
-    except Exception as e:
-        raise ValueError(f'Cannot parse `channels_mapping` into a Python object,'\
-                ' probably there is a syntax error in your config file. The error'\
-                ' raised by the method in charge of the parsing is: {repr(e)}')
-    if not isinstance(channels_mapping, dict):
-        raise ValueError(f'`channels_mapping` should be a dictionary, received instead'\
-                ' an object of type {type(channels_mapping)}')
-    for k,i in channels_mapping.items():
-        if not isinstance(k, str):
-            raise ValueError(f'The keys of `channels_mapping` must be strings containing'\
-                    ' the names of each plane, but received `{repr(k)}` of type {type(k)}')
-        if not isinstance(i, list) or any([not isinstance(_,list) for _ in i]) or any([len(i[0])!=len(_) for _ in i]):
-            raise ValueError(f'Each item of `channels_mapping` must be a two dimensional'\
-                    ' array specified as a list of lists with dimensions X×Y being X the'\
-                    ' number of pixels in x and Y the number of pixels in Y')
-        if any([not isinstance(_,str) for __ in i for _ in __]):
-            raise ValueError(f'The elements inside the lists of `channels_mapping` must'\
-                    ' be strings with the channels names from the CAEN, e.g. `"CH1"`.')
+def parse_channels_mapping(path_to_channels_mapping_file:Path):
+    mapping = pandas.read_csv(
+        path_to_channels_mapping_file,
+        dtype = {
+            'DUT_name': str,
+            'row': int,
+            'col': int,
+            'channel_name': str,
+        },
+        # ~ index_col = ['DUT_name','row','col'],
+    )
+    print(mapping)
+    
+    channels_mapping = dict()
+    for DUT_name, df_DUT in mapping.groupby('DUT_name'):
+        channels_mapping[DUT_name] = dict()
+        for channel_name, df_channel in df_DUT.groupby('channel_name'):
+            rowscols = df_channel[['row','col']].to_numpy()
+            channels_mapping[DUT_name][channel_name] = [tuple(_) for _ in rowscols]
+    
+    
+    a
     return channels_mapping
 
 def decode_trigger_id(trigger_id_waveform:np.ndarray, clock_waveform:np.ndarray, trigger_waveform:np.ndarray, clock_edge_to_use:str)->int:
@@ -196,23 +184,17 @@ class CAENDT5742Producer(pyeudaq.Producer):
                 'trigger_polarity': dict(
                     type = str,
                     ),
+                'channels_mapping_file': dict(
+                    type = Path,
+                )
                 }
 
         # Always better to start in a known state
         self._digitizer.reset() 
         
-        conf = self.GetConfiguration().as_dict()
-        channels_mapping_str = conf['channels_mapping']
-        self.channels_mapping = parse_channels_mapping(channels_mapping_str)
-        
-        # This is the order in which the data will be stored, i.e. which channel first, which second, etc.
-        self.channels_names_list = sorted([self.channels_mapping[ch][i][j] 
-                                           for ch in self.channels_mapping for i in range(len(self.channels_mapping[ch]))
-                                           for j in range(len(self.channels_mapping[ch][i]))])  
-        # Convert back into integers
         # Note the special case: trigger_group_0 -> 16  and trigger_group_1 --> 17
         self.channels_to_int = {}
-        for ch in self.channels_names_list:
+        for ch in CAEN_CHANNELS_NAMES:
             try:
                 self.channels_to_int[ch] =  int(ch.replace('CH','')) 
             except ValueError:
@@ -220,9 +202,9 @@ class CAENDT5742Producer(pyeudaq.Producer):
                     self.channels_to_int[ch] = 16
                 if ch == 'trigger_group_1':
                     self.channels_to_int[ch] = 17
-                
         
         # Parse parameters and raise errors if necessary:
+        conf = self.GetConfiguration().as_dict()
         for param_name, param_dict in CONFIGURE_PARAMS.items():
             try:
                 received_param_value = conf[param_name]
@@ -244,7 +226,10 @@ class CAENDT5742Producer(pyeudaq.Producer):
             else:
                 # This is just for trigger polarity.. XXX -- Is this needed?
                 param_dict['value'] = param_value
-                
+        
+        channels_mapping = parse_channels_mapping(Path(conf['channels_mapping_file']))
+        a
+        
         # Manual configuration of parameters:
         for ch in [0,1]:
             self._digitizer.set_trigger_polarity(channel=ch, edge=CONFIGURE_PARAMS['trigger_polarity']['value'])
@@ -333,6 +318,7 @@ class CAENDT5742Producer(pyeudaq.Producer):
             if DEBUG_WAVEFORMS_DUMPING:
                 waveforms_to_dump = []
             n_trigger = 0
+            # ~ deleteme = []
             previous_decoded_trigger_id = None
             have_to_decode_trigger_id = hasattr(self, '_trigger_id_decoding_config')
             decoded_trigger_number_of_turns = 0
@@ -353,6 +339,9 @@ class CAENDT5742Producer(pyeudaq.Producer):
                     event.SetTag('channels_names_list', repr(self.channels_names_list))
                     # Number of DUTs that were specified in `channels_mapping` in the config file.
                     event.SetTag('number_of_DUTs', repr(len(self.channels_mapping)))
+                    
+                    event.SetTage('dut_names', "___, ___, ___") ##########################################################
+                    
                     event.SetTag('sampling_frequency_MHz', repr(self._digitizer.get_sampling_frequency()))
                     # Number of samples per waveform to decode the raw data.
                     event.SetTag('n_samples_per_waveform', repr(self._digitizer.get_record_length()))
@@ -380,11 +369,10 @@ class CAENDT5742Producer(pyeudaq.Producer):
                         # Use the channel as Block Id
                         event.AddBlock(self.channels_to_int[ch], serialized_data)
                         
-                        if DEBUG_WAVEFORMS_DUMPING:
-                            df = pandas.DataFrame(this_trigger_waveforms[ch])
-                            df['channel'] = ch
-                            df['n_trigger'] = n_trigger
-                            waveforms_to_dump.append(df)
+                        # ~ df = pandas.DataFrame(this_trigger_waveforms[ch])
+                        # ~ df['channel'] = ch
+                        # ~ df['n_trigger'] = n_trigger
+                        # ~ deleteme.append(df)
                     
                     if have_to_decode_trigger_id:
                         raw_decoded_trigger_id = decode_trigger_id(
@@ -400,9 +388,12 @@ class CAENDT5742Producer(pyeudaq.Producer):
                         if decoded_trigger_id != n_trigger:
                             EUDAQ_INFO(f'⚠️ The decoded trigger does not coincide with the internally counted triggers. (n_internal={n_trigger}, n_decoded={decoded_trigger_id})')
                         previous_decoded_trigger_id = decoded_trigger_id
+                        print(decoded_trigger_id==n_trigger, n_trigger)
                     
                     self.SendEvent(event)
                     self.events_queue.task_done()
+            # ~ deleteme = pandas.concat(deleteme)
+            # ~ deleteme.to_pickle(f'~/Desktop/waveforms_CAEN_{str(self._digitizer.get_info()["SerialNumber"])}.pickle')
             
             if DEBUG_WAVEFORMS_DUMPING and len(waveforms_to_dump) > 0:
                 waveforms_to_dump = pandas.concat(waveforms_to_dump)
@@ -437,4 +428,5 @@ def main(name,runctrl,dry_run):
         time.sleep(1)
         
 if __name__ == "__main__":
-    main()
+    # ~ main()
+    parse_channels_mapping(Path('/home/msenger/config/channels.csv'))
