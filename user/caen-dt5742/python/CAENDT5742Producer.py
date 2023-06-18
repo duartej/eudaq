@@ -65,52 +65,52 @@ def parse_channels_mapping(channels_mapping_str:str):
     return channels_mapping
 
 def decode_trigger_id(trigger_id_waveform:np.ndarray, clock_waveform:np.ndarray, trigger_waveform:np.ndarray, clock_edge_to_use:str)->int:
-	"""Decode a trigger ID from a waveform.
-	
-	Arguments
-	---------
-	trigger_id_waveform: np.ndarray
-		The waveform containing the trigger ID sent by
-		the AIDA TLU.
-	clock_waveform: np.ndarray
-		The waveform containing the clock sent by the AIDA TLU.
-	trigger_waveform: np.ndarray
-		The waveform containing the trigger.
-	clock_edge_to_use: str
-		Which clock edge to use to look for the data in the `trigger_id_waveform`,
-		options are `'rising'` or `'falling'`. You have to choose looking
-		at the waveforms.
-	
-	Returns
-	-------
-	decoded_id: int
-		The decoded ID.
-	"""
-	if not isinstance(trigger_id_waveform, np.ndarray) or not isinstance(clock_waveform, np.ndarray) or not isinstance(trigger_waveform, np.ndarray):
-		raise TypeError(f'Both `trigger_id_waveform`, `clock_waveform` and `trigger_waveform` must be instances of `numpy.ndarray`.')
-	
-	if clock_edge_to_use == 'rising':
-		clock_edge_to_use = 1
-	elif clock_edge_to_use == 'falling':
-		clock_edge_to_use = -1
-	else:
-		raise ValueError(f'`clock_edge_to_use` must be either "rising" or "falling"')
-	
-	digitized_clock_waveform = clock_waveform > clock_waveform.mean()
-	digitized_trigger_id_waveform = trigger_id_waveform > clock_waveform.mean()
-	digitized_trigger_waveform = trigger_waveform > clock_waveform.mean()
-	clock_edges_indices = np.where(np.diff(digitized_clock_waveform*clock_edge_to_use) > 0)[0] # Multiply by 1 to convert boolean array to integer array, otherwise `numpy.diff` gives always positive values.
-	trigger_index = np.where(np.diff((digitized_trigger_waveform*digitized_clock_waveform)*clock_edge_to_use) > 0)[0][0]
-	trigger_clock_index = clock_edges_indices[clock_edges_indices<=trigger_index][-1]
-	
-	bits_sequence = digitized_trigger_id_waveform[clock_edges_indices]
-	bits_sequence = bits_sequence[np.where(clock_edges_indices==trigger_clock_index)[0][0]+1:]
-	bits_sequence = bits_sequence[::-1]
-	bits_sequence = bits_sequence*1 # Convert to integer.
-	bits_sequence = ''.join([str(_) for _ in bits_sequence])
-	decoded_integer = int(bits_sequence, 2)
-	
-	return decoded_integer
+    """Decode a trigger ID from a waveform.
+    
+    Arguments
+    ---------
+    trigger_id_waveform: np.ndarray
+        The waveform containing the trigger ID sent by
+        the AIDA TLU.
+    clock_waveform: np.ndarray
+        The waveform containing the clock sent by the AIDA TLU.
+    trigger_waveform: np.ndarray
+        The waveform containing the trigger.
+    clock_edge_to_use: str
+        Which clock edge to use to look for the data in the `trigger_id_waveform`,
+        options are `'rising'` or `'falling'`. You have to choose looking
+        at the waveforms.
+    
+    Returns
+    -------
+    decoded_id: int
+        The decoded ID.
+    """
+    if not isinstance(trigger_id_waveform, np.ndarray) or not isinstance(clock_waveform, np.ndarray) or not isinstance(trigger_waveform, np.ndarray):
+        raise TypeError(f'Both `trigger_id_waveform`, `clock_waveform` and `trigger_waveform` must be instances of `numpy.ndarray`.')
+    
+    if clock_edge_to_use == 'rising':
+        clock_edge_to_use = 1
+    elif clock_edge_to_use == 'falling':
+        clock_edge_to_use = -1
+    else:
+        raise ValueError(f'`clock_edge_to_use` must be either "rising" or "falling"')
+    
+    digitized_clock_waveform = clock_waveform > clock_waveform.mean()
+    digitized_trigger_id_waveform = trigger_id_waveform > clock_waveform.mean()
+    digitized_trigger_waveform = trigger_waveform > clock_waveform.mean()
+    clock_edges_indices = np.where(np.diff(digitized_clock_waveform*clock_edge_to_use) > 0)[0] # Multiply by 1 to convert boolean array to integer array, otherwise `numpy.diff` gives always positive values.
+    trigger_index = np.where(np.diff((digitized_trigger_waveform*digitized_clock_waveform)*clock_edge_to_use) > 0)[0][0]
+    trigger_clock_index = clock_edges_indices[clock_edges_indices<=trigger_index][-1]
+    
+    bits_sequence = digitized_trigger_id_waveform[clock_edges_indices]
+    bits_sequence = bits_sequence[np.where(clock_edges_indices==trigger_clock_index)[0][0]+1:]
+    bits_sequence = bits_sequence[::-1]
+    bits_sequence = bits_sequence*1 # Convert to integer.
+    bits_sequence = ''.join([str(_) for _ in bits_sequence])
+    decoded_integer = int(bits_sequence, 2)
+    
+    return decoded_integer
 
 def exception_handler(method):
     def inner(*args, **kwargs):
