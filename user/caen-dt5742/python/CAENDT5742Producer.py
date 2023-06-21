@@ -260,7 +260,7 @@ class CAENDT5742Producer(pyeudaq.Producer):
                 # Front Panel I/O Control, see '742 Raw Waveform Registers Description' in https://www.caen.it/products/dt5742/ → Downloads.
                 address = 0x811C, 
                 data = (0
-                        | 0b1<<0 # TTL standard.
+                        | 0b0<<0 # 1 = TTL standard, 0 = NIM standard.
                         | 0b01<<16 #  Motherboard Probes: TRG‐OUT/GPO is used to propagate signals of the motherboards according to bits[19:18].
                         | 0b11<<18 # BUSY/UNLOCK: this is the board BUSY in case of ROC FPGA firmware rel. 4.5 or lower. This probe can be selected according to bit[20].
                         | 0b0<<20 # If bits[19:18] = 11, then bit[20] options are: 0 = Board BUSY.
