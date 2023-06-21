@@ -37,18 +37,26 @@ class _DAQ(object):
         return _DAQ._actual_daq(*values,**kwd)
 CAEN_DAQ = _DAQ()
 
-def parse_channels_mapping(path_to_channels_mapping_file:Path):
-    mapping = pandas.read_csv(
-        path_to_channels_mapping_file,
-        dtype = {
-            'DUT_name': str,
-            'row': int,
-            'col': int,
-            'channel_name': str,
-        },
-        # ~ index_col = ['DUT_name','row','col'],
-    )
-    print(mapping)
+def parse_channels_mapping(path_to_channels_mapping_file:Path)->dict:
+    EXPECTED_DTYPES = {
+        'DUT_name': str,
+        'row': int,
+        'col': int,
+        'channel_name': str,
+    }
+    try:
+        mapping = pandas.read_csv(
+            path_to_channels_mapping_file,
+            dtype = EXPECTED_DTYPES,
+        )
+    except ValueError as e:
+        if 'cannot safely convert passed user dtype' in repr(e):
+            raise ValueError(f'The values in the file that specifies the CAEN channels connections (i.e. in {path_to_channels_mapping_file}) cannot be parsed according to the expected data types. The expected data types are {EXPECTED_DTYPES}. ')
+        else:
+            raise e
+    
+    if not set(mapping['channel_name']).issubset(set(CAEN_CHANNELS_NAMES)):
+        raise ValueError(f'The valid channels names for the CAEN digitizer are {CAEN_CHANNELS_NAMES}, received {sorted(set(mapping["channel_name"]))}. At least one is wrong.')
     
     channels_mapping = dict()
     for DUT_name, df_DUT in mapping.groupby('DUT_name'):
