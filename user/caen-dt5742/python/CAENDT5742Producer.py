@@ -23,9 +23,14 @@ import threading
 import time
 
 DEBUG_WAVEFORMS_DUMPING = True
+LOCATION_FOR_DUMPING_DATA = Path.home()/'Desktop/data'
 if DEBUG_WAVEFORMS_DUMPING:
     import pandas
-
+    import datetime
+    
+    def create_a_timestamp():
+        return datetime.datetime.now().strftime("%Y%m%d%H%M")
+    
 # Variable to allow the use the real DAQ or a simulation
 class _DAQ(object):
     _actual_daq = None
@@ -321,6 +326,9 @@ class CAENDT5742Producer(pyeudaq.Producer):
     def RunLoop(self):
         self.events_queue = queue.Queue()
         
+        if DEBUG_WAVEFORMS_DUMPING:
+            this_run_timestamp = create_a_timestamp()
+        
         def thread_target_function():
             if DEBUG_WAVEFORMS_DUMPING:
                 waveforms_to_dump = []
@@ -398,7 +406,7 @@ class CAENDT5742Producer(pyeudaq.Producer):
             
             if DEBUG_WAVEFORMS_DUMPING and len(waveforms_to_dump) > 0:
                 waveforms_to_dump = pandas.concat(waveforms_to_dump)
-                waveforms_to_dump.to_pickle(f'~/Desktop/waveforms_CAEN_{str(self._digitizer.get_info()["SerialNumber"])}.pickle')
+                waveforms_to_dump.to_pickle(LOCATION_FOR_DUMPING_DATA/f'{this_run_timestamp}_waveforms_CAEN_{str(self._digitizer.get_info()["SerialNumber"])}.pickle')
             
         threading.Thread(target=thread_target_function, daemon=True).start()
 
