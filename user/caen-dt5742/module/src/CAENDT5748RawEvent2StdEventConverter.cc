@@ -40,7 +40,6 @@ class CAENDT5748RawEvent2StdEventConverter: public eudaq::StdEventConverter {
         static std::map<int, float> _t0;
         static std::map<int, float> _dt;
         // XXX - TBD?
-        static std::map<int, std::vector<std::string> > _channel_names_list;
         // XXX -- TBD?
         static std::map<int, std::vector<int> > _dut_channel_list;
         // { Digitizer: { DUT: { channel : [ (row, col), (row, col), ... ],  ... 
@@ -51,7 +50,6 @@ class CAENDT5748RawEvent2StdEventConverter: public eudaq::StdEventConverter {
         static std::map<int, std::map<int,int> > _npixels;
         // Human-readable name related with the internal DUT-id
         static std::map<int, std::map<std::string,int> > _dut_names_id;
-        static std::map<int, std::vector<std::string> > DUTs_names;
 };
 
 namespace {
@@ -67,14 +65,11 @@ size_t CAENDT5748RawEvent2StdEventConverter::_sampling_frequency_MHz;
 std::map<int, size_t> CAENDT5748RawEvent2StdEventConverter::_n_duts;
 std::map<int, float> CAENDT5748RawEvent2StdEventConverter::_t0;
 std::map<int, float> CAENDT5748RawEvent2StdEventConverter::_dt;
-// -- FIXME -- Possible deprecate
-std::map<int, std::vector<std::string> > CAENDT5748RawEvent2StdEventConverter::_channel_names_list;
 std::map<int, std::vector<int> > CAENDT5748RawEvent2StdEventConverter::_dut_channel_list;
 std::map<int, std::map<int, PixelMap> > CAENDT5748RawEvent2StdEventConverter::_dut_channel_arrangement;
 std::map<int, std::map<int, std::array<int,2>> > CAENDT5748RawEvent2StdEventConverter::_nrows_ncolumns;
 std::map<int, std::map<int,int> > CAENDT5748RawEvent2StdEventConverter::_npixels;
 std::map<int, std::map<std::string,int> > CAENDT5748RawEvent2StdEventConverter::_dut_names_id;
-std::map<int, std::vector<std::string> > CAENDT5748RawEvent2StdEventConverter::DUTs_names;
 
 void CAENDT5748RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, eudaq::ConfigurationSPC conf) const {
     
@@ -96,7 +91,14 @@ void CAENDT5748RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, euda
     
     // Get the list of DUTs so it can be extracted all channels and row-col mapping:
     std::string s( bore->GetTag("dut_names") );
-    for (char c : {'[', ']', '\'', '\"'}) {
+    // XXX - Provisional (ask MS to list() the dict keys)
+    size_t start_rm = s.find("dict_keys");
+    size_t end_rm = s.find("(");
+    if(start_rm != std::string::npos && end_rm != std::string::npos) {
+        s.erase(start_rm, end_rm - start_rm + 1);
+    }    
+    // XXX - END Provisional
+    for (char c : {'[', ']', ')', '\'', '\"',}) {
         s.erase(remove(s.begin(), s.end(), c), s.end());
     }
     std::string delimiter = ", ";
@@ -113,11 +115,6 @@ void CAENDT5748RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, euda
     // The number of DUTS
     _n_duts[device_id] = _dut_names_id[device_id].size();
 
-for(auto & KK: _dut_names_id[device_id])
-{
-std::cout << "--DEVICE: " ; 
-}
-std::cout << std::endl; std::cin.get();
     // Extract the tags for each DUT:
     for(const auto & dutname_id: _dut_names_id[device_id]) {
         _dut_channel_arrangement[device_id][dutname_id.second] = _GetDUTPixelMap(bore->GetTag(dutname_id.first));
@@ -126,6 +123,7 @@ std::cout << std::endl; std::cin.get();
         int nrow = -1;
         int ncol = -1;
         for(const auto & channel_listrowcol: _dut_channel_arrangement[device_id][dutname_id.second] ) {
+            _dut_channel_list[device_id].push_back(channel_listrowcol.first);
             // And loop over all the pixels bounded to this channel
             for(const auto & rowcol: channel_listrowcol.second) {
                 if(rowcol[0] > nrow) {
@@ -146,51 +144,34 @@ std::cout << std::endl; std::cin.get();
     _t0[device_id] = 0.0;
     _dt[device_id] = (_sampling_frequency_MHz*1e6)/_n_samples_per_waveform;
 
-
-std::cout << "--> t0=" << _t0[device_id] << ", dt=" << _dt[device_id]*1e-6 << " [ns]; " ;
-for(auto & ndut_map: _dut_channel_arrangement[device_id])
-{
-    std::cout << "--> DUT-" << ndut_map.first << " {";
-    for(auto & ch_listpixels: ndut_map.second)
-    {
-        std::cout << "--> CH- [" << ch_listpixels.first ;
-        for(auto & pixel: ch_listpixels.second) {
-            std::cout << " ROW: " << pixel[0] << " COL:" << pixel[1];
+    // Print-out some info about the config data
+    EUDAQ_INFO(" Defined DUTs in [" +_name[device_id]+ "] digitizer: ");
+    for(auto & dn_id: _dut_names_id[device_id]) {
+        EUDAQ_INFO(" [" + dn_id.first + "], internal-id:" + std::to_string(dn_id.second) +", "
+                + std::to_string(_dut_channel_arrangement[device_id][dn_id.second].size())
+                + " channels");
+        std::string list_pixels;
+        for(const auto & ch_listpixels: _dut_channel_arrangement[device_id][dn_id.second]) {
+            list_pixels += "  "+std::to_string(_npixels[device_id][dn_id.second]) 
+                + "-CH" + std::to_string(ch_listpixels.first) + ": {";
+            for(const auto & pixels: ch_listpixels.second) {
+                list_pixels += " ("+std::to_string(pixels[0]) + "," +std::to_string(pixels[1]) + ")";
+            }
+            list_pixels += " }, ";
         }
-        std::cout << " ] " << std::endl;
+        EUDAQ_INFO(list_pixels);
     }
-std::cout << "}" << std::endl;
-}
+
 std::cin.get();
-//std::ostringstream ossa;
-//std::copy(DUTs_names[device_id].begin(), DUTs_names[device_id].end(), std::ostream_iterator<std::string>(ossa, " "));
-//std::cout << " Initialize: DUSTs list-[ " << ossa.str() << "]" << std::endl;*/
 
     // Debugging print-out stuff
-    EUDAQ_DEBUG(" Initialize: nsamples_per_waveform: " + std::to_string(_n_samples_per_waveform) +
+    EUDAQ_DEBUG(" Initialize:: nsamples_per_waveform: " + std::to_string(_n_samples_per_waveform) +
             ", sampling frequency: " + std::to_string(_sampling_frequency_MHz) + " MHz" +
             ", number of DUTs: " + std::to_string(_n_duts[device_id]));
     // Get the list of channels
     std::ostringstream oss;
-    std::copy(_channel_names_list[device_id].begin(), _channel_names_list[device_id].end(), std::ostream_iterator<std::string>(oss, " "));
-    EUDAQ_DEBUG(" Initialize: Channel names list-[ " + oss.str() +"]");
-    // And the DUTs
-    // clear first the oss
-    oss.str("");
-    oss.clear();
-    std::copy(DUTs_names[device_id].begin(), DUTs_names[device_id].end(), std::ostream_iterator<std::string>(oss, " ")) ;
-    EUDAQ_DEBUG(" Initialize: DUT names-["+oss.str()+"]");
-    oss.str("");
-    oss.clear();
-    for(const auto & dutid_chlist: _dut_channel_list) {
-        oss << " [DUT:" << dutid_chlist.first << "]-{";
-        for(const auto & _ch: dutid_chlist.second)
-        {
-            oss << " " << _ch ;
-        }
-        oss << " } ";
-    }
-    EUDAQ_DEBUG(" Initialize:"+oss.str());
+    std::copy(_dut_channel_list[device_id].begin(), _dut_channel_list[device_id].end(), std::ostream_iterator<int>(oss, " "));
+    EUDAQ_DEBUG(" Initialize:: Channel list (internal-ids): [ " + oss.str() +" ]");
 }
 
 std::vector<float> uint8VectorToFloatVector(std::vector<uint8_t> data) {
@@ -269,24 +250,13 @@ bool CAENDT5748RawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq:
     << ", Description:" << event->GetDescription()
     << std::endl;
 
-std::cout << " ESTOY-1" <<std::endl;
-std::cout << "Data members: No-channels:" << _channel_names_list[dev_id].size() 
-    << " _dut_channel_list: " << _dut_channel_list.size()
-    << " Nsamples_per_wf: " << _n_samples_per_waveform
-    << " DUTS names: " << DUTs_names[dev_id].size() << "[";
-for(auto & kk: DUTs_names[dev_id])
-{
-    std::cout << " " << kk ;
-}
-std::cout << " ]" << std::endl;
 
 std::cin.get();*/
 
     // Expecting one block per channel
-    // XXX - Should be right, remember to uncomment
-    if(event->NumBlocks() != _channel_names_list[dev_id].size()) {
-        EUDAQ_ERROR("Expected one block per channel (n-channel: "+ 
-                std::to_string(_channel_names_list.size()) + "). Blocks: "+
+    if(event->NumBlocks() != _dut_channel_list[dev_id].size()) {
+        EUDAQ_ERROR(" Expected one block per channel (n-channel: "+ 
+                std::to_string(_dut_channel_list[dev_id].size()) + "). Blocks: "+
                 std::to_string(event->NumBlocks()) );
         return false;
     }
@@ -311,6 +281,8 @@ std::cin.get();*/
         eudaq::StandardPlane plane(sensor_id, "CAEN5748", producer_name);
         // Define the size of the DUT (in row and columns) --> Extracted from _nrows_ncolumns
         // Remember in here: first columns, then rows
+OJOOOOO -LA DEFINICION DEP IXELS
+std::cout << " SetSizeZS " << _npixels[dev_id][dutname_sensorid.second] << std::endl;
         plane.SetSizeZS( (uint32_t)_nrows_ncolumns[dev_id][dutname_sensorid.second][1], 
                 (uint32_t)_nrows_ncolumns[dev_id][dutname_sensorid.second][0],
                 _npixels[dev_id][dutname_sensorid.second]);
@@ -318,8 +290,11 @@ std::cin.get();*/
         // Each channel is stored in a block
         uint8_t pixid = 0;
         for(const auto & chlist_colrow: _dut_channel_arrangement[dev_id][dutname_sensorid.second]) {
+std::cout << " ch: " << chlist_colrow.first << std::endl;
             const size_t n_block = chlist_colrow.first;
+std::cout << " ANTESDESPUES ch: " << chlist_colrow.first << std::endl;
             std::vector<float> raw_data = uint8VectorToFloatVector(event->GetBlock(n_block));
+std::cout << " DESPUES ch: " << chlist_colrow.first << std::endl;
 
             // XXX -- Make this sense? Just to avoid crashing... [PROV]
             if(raw_data.size() == 0)
@@ -332,16 +307,20 @@ std::cin.get();*/
             //        for sure we'd like to get the rise time as well?
             double amplitude = amplitude_from_waveform(raw_data);
             
-            // Note the signature introduce x,y -> col, row. Opposite which 
-            // what we store
-            //plane.SetPixel(pixid,  ---> I think it is perfectly save using channel?
-            // XXX plane.SetPixel(n_block, chlist_colrow.second[1], chlist_colrow.second[0], amplitude);
-            
+            // Each channel is wirebonded to the the list of pixels, assuming the amplitude
+            // is shared between all the pixels (same for all of them)
             std::vector<double> wf(raw_data.begin(), raw_data.end());
-            // Set The Waveform
-            plane.SetWaveform(pixid, wf, _t0[dev_id], _dt[dev_id] );
-            
-            ++pixid;
+            for(const auto & pixel: chlist_colrow.second) {
+                // Note the signature introduce x,y -> col, row. Opposite to which we store
+std::cout << " =====" << pixel.size() << std::endl;
+//FALLA AQUI --> Probablmente tenga que reservar los pixeles (
+                plane.SetPixel(pixid, pixel[1], pixel[0], amplitude);
+std::cout << " ANTS: " << pixid << std::endl;
+                plane.SetWaveform(pixid, wf, _t0[dev_id], _dt[dev_id] );
+std::cout << " DEPSIUES: " << pixid << std::endl;
+                // Set The Waveform
+                ++pixid;
+            }
 /*std::cout << " The Raw data for CH-" << channel << ": [size: " << raw_data.size() << "]: " ;
 for(const auto & dt: raw_data)
 {
@@ -349,7 +328,9 @@ for(const auto & dt: raw_data)
 }
 std::cout << std::endl;*/
         }
+std::cout << " PLANE:" << std::endl;
         d2->AddPlane(plane);
+std::cout << " PLANE DESPUES: " << std::endl;
     }
 /*d2->Print(std::cout);
 std::cin.get();*/
@@ -373,23 +354,36 @@ PixelMap CAENDT5748RawEvent2StdEventConverter::_GetDUTPixelMap(const std::string
     std::regex re_ch(R"(CH(\d*):)");
     std::regex re_colrow(R"(\((\d+),(\d+)\))");
 
+std::cout << "-----> " << dut_tag << std::endl;
     PixelMap ch_dict;
     for(auto & chstr: substrings)
     {
         int current_channel = -1;
-        for(std::sregex_iterator it = std::sregex_iterator(chstr.begin(),chstr.end(),re_ch); it != std::sregex_iterator();++it)
-        {
+        for(std::sregex_iterator it = std::sregex_iterator(chstr.begin(),chstr.end(),re_ch); it != std::sregex_iterator();++it) {
             std::smatch m = *it;
             //std::cout << "[->> " << m[1].str() << std::endl;
             current_channel = std::stoi(m[1]);
         }
 
-        for(std::sregex_iterator cr = std::sregex_iterator(chstr.begin(),chstr.end(),re_colrow); cr != std::sregex_iterator();++cr)
-        {
-               std::smatch m = *cr;
-               //std::cout << "[ colrow : " << m[1].str() << " " << m[2].str() <<  std::endl;
-               ch_dict[current_channel].push_back({std::stoi(m[1].str()),std::stoi(m[2].str())});
+        if( current_channel == -1 ) {
+            // there is no integer in channel, therefore trigger_group_0 or trigger_group_1
+            // HARDCODED in the producer, hardcoded here
+            if( chstr.find("trigger_group_0") != std::string::npos) {
+                current_channel = 16;
+            }
+            else if( chstr.find("trigger_group_1") != std::string::npos) {
+                current_channel = 17;
+            }
+            // -- TODO - Error control?
         }
+std::cout << "-----> " << current_channel << " === " << chstr << std::endl;
+
+        for(std::sregex_iterator cr = std::sregex_iterator(chstr.begin(),chstr.end(),re_colrow); cr != std::sregex_iterator();++cr) {
+            std::smatch m = *cr;
+            //std::cout << "[ colrow : " << m[1].str() << " " << m[2].str() <<  std::endl;
+            ch_dict[current_channel].push_back({std::stoi(m[1].str()),std::stoi(m[2].str())});
+        }
+
     }
 
     return ch_dict;
