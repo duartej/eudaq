@@ -65,8 +65,6 @@ def parse_channels_mapping(path_to_channels_mapping_file:Path)->dict:
             rowscols = df_channel[['row','col']].to_numpy()
             channels_mapping[DUT_name][channel_name] = [tuple(_) for _ in rowscols]
     
-    
-    a
     return channels_mapping
 
 def decode_trigger_id(trigger_id_waveform:np.ndarray, clock_waveform:np.ndarray, trigger_waveform:np.ndarray, clock_edge_to_use:str)->int:
@@ -235,8 +233,11 @@ class CAENDT5742Producer(pyeudaq.Producer):
                 # This is just for trigger polarity.. XXX -- Is this needed?
                 param_dict['value'] = param_value
         
-        channels_mapping = parse_channels_mapping(Path(conf['channels_mapping_file']))
-        a
+        
+        self.channels_mapping = parse_channels_mapping(Path(conf['channels_mapping_file'])) # This stores the information regarding what is connected into each of the channels of the CAEN and the geometry.
+        EUDAQ_INFO(f'The mapping of the channels was set to this: {self.channels_mapping}')
+        
+        self.set_of_active_channels = set([ch for DUT_name in channels_mapping for ch in channels_mapping[DUT_name]])
         
         # Manual configuration of parameters:
         for ch in [0,1]:
@@ -246,11 +247,13 @@ class CAENDT5742Producer(pyeudaq.Producer):
         self._digitizer.set_acquisition_mode('sw_controlled')
         self._digitizer.set_ext_trigger_input_mode('disabled')
         self._digitizer.set_fast_trigger_mode(enabled=True)
-        self._digitizer.set_fast_trigger_digitizing(enabled=True)
+        
+        # Auto detect some settings according to the requested channels by the user.
+        self._digitizer.set_fast_trigger_digitizing(enabled = any([_ in self.set_of_active_channels for _ in ['trigger_group_0','trigger_group_1']]))
         self._digitizer.enable_channels(
-                group_1=any([f'CH{n}' in self.channels_names_list for n in [0,1,2,3,4,5,6,7]] + ['trigger_group_0']), 
-                group_2=any([f'CH{n}' in self.channels_names_list for n in [8,9,10,11,12,13,14,15]] + ['trigger_group_1'])
-                )
+            group_1 = any([_ in ([f'CH{n}' for n in [0,1,2,3,4,5,6,7]] + ['trigger_group_0']) for _ in self.set_of_active_channels]),
+            group_2 = any([_ in ([f'CH{n}' for n in [8,9,10,11,12,13,14,15]] + ['trigger_group_1']) for _ in self.set_of_active_channels]),
+        )
         self._digitizer.set_fast_trigger_DC_offset(V=0)
         
         # Enable busy signal on GPO:
@@ -339,16 +342,12 @@ class CAENDT5742Producer(pyeudaq.Producer):
                 # BORE info
                 if n_trigger == 0:
                     event.SetBORE()
-                    # Literally whatever the `channels_mapping` parameter in the config file was, #
-                    # e.g. `{'DUT_1': [['CH0','CH1'],['CH2','CH3']], 'DUT_2': [['CH4','CH5'],['CH6','CH7']]}`.
-                    event.SetTag('channels_mapping_str', repr(self.channels_mapping))
-                    # A list with the channels that were acquired and in the order they are stored in the raw data, 
-                    #e.g. `['CH0','CH1','CH2',...]`
-                    event.SetTag('channels_names_list', repr(self.channels_names_list))
-                    # Number of DUTs that were specified in `channels_mapping` in the config file.
-                    event.SetTag('number_of_DUTs', repr(len(self.channels_mapping)))
-                    
-                    event.SetTage('dut_names', "___, ___, ___") ##########################################################
+                    # Store the mapping of the channels literally as it was parsed.
+                    event.SetTag('channels_mapping_str', str(self.channels_mapping))
+                    # A set with the channels that were acquired randomly ordered, e.g. `{'CH8', 'CH2', 'CH13', 'CH10', 'CH15', 'CH5', 'CH0', 'CH1', 'CH3', 'CH4', 'trigger_group_0', 'CH11', 'CH14', 'trigger_group_1', 'CH12', 'CH9'}`.
+                    event.SetTag('set_of_active_channels', str(list(self.set_of_active_channels)))
+                    # A list with the names of the DUTs.
+                    event.SetTag('dut_names', str(self.channels_mapping.keys()))
                     
                     event.SetTag('sampling_frequency_MHz', repr(self._digitizer.get_sampling_frequency()))
                     # Number of samples per waveform to decode the raw data.
@@ -356,10 +355,8 @@ class CAENDT5742Producer(pyeudaq.Producer):
                     n_dut = 0
                     for dut_name, dut_channels in self.channels_mapping.items():
                         dut_label = f'DUT_{n_dut}' # DUT_0, DUT_1, ...
-                        event.SetTag(f'{dut_label}_name', repr(dut_name)) # String with the name of the DUT, defined by the user in the config file as the key of the `channels_mapping` dictionary.
-                        event.SetTag(f'{dut_label}_channels_matrix', repr(dut_channels)) # List with channels names, e.g. `"[['CH0','CH1'],['CH2','CH3']]"`.
-                        event.SetTag(f'{dut_label}_channels_arrangement', repr([f'{item}: {i},{j}' for i,row in enumerate(dut_channels) for j,item in enumerate(row)])) # End up with something of the form `"['CH0: 0,0', 'CH1: 0,1', 'CH2: 1,0', 'CH3: 1,1']"`
-                        event.SetTag(f'{dut_label}_n_channels', repr(sum([len(_) for _ in dut_channels]))) # Number of channels (i.e. number of waveforms) belonging to this DUT.
+                        # For each device this tells how the connections were made, e.g. `'CH0:[(0,0),(0,1),(1,0)],CH1:[(3,3)]'`.
+                        event.SetTag(dut_name, str(tag_with_DUT_channels).replace('{','').replace('}','').replace(' ','').replace("'",'').replace('"',''))
                         n_dut += 1
                     
                     event.SetTag(f'producer_name', str(self._name))
@@ -436,5 +433,10 @@ def main(name,runctrl,dry_run):
         time.sleep(1)
         
 if __name__ == "__main__":
-    # ~ main()
-    parse_channels_mapping(Path('/home/msenger/config/channels.csv'))
+    main()
+    # ~ channels_mapping = parse_channels_mapping(Path('/home/msenger/config/channels.csv'))
+    # ~ print(channels_mapping)
+    # ~ tag_with_DUT_channels = channels_mapping['weird_DUT']
+    
+    # ~ print()
+    
