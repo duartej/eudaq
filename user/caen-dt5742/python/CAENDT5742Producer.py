@@ -367,7 +367,7 @@ class CAENDT5742Producer(pyeudaq.Producer):
                     n_trigger += 1
                     
                     for ch in self.channels_names_list:
-                        serialized_data = np.array(this_trigger_waveforms[ch]['Amplitude (ADCu)'], dtype=np.float32)
+                        serialized_data = np.array(this_trigger_waveforms[ch]['Amplitude (V)'], dtype=np.float32)
                         serialized_data = serialized_data.tobytes()
                         # Use the channel as Block Id
                         event.AddBlock(self.channels_to_int[ch], serialized_data)
@@ -380,9 +380,9 @@ class CAENDT5742Producer(pyeudaq.Producer):
                     
                     if have_to_decode_trigger_id:
                         raw_decoded_trigger_id = decode_trigger_id(
-                            trigger_id_waveform = this_trigger_waveforms[self._trigger_id_decoding_config['trigger_id_channel_name']]['Amplitude (ADCu)'],
-                            clock_waveform = this_trigger_waveforms[self._trigger_id_decoding_config['TLU_clock_channel_name']]['Amplitude (ADCu)'],
-                            trigger_waveform = this_trigger_waveforms[self._trigger_id_decoding_config['trigger_channel_names'][0]]['Amplitude (ADCu)'],
+                            trigger_id_waveform = this_trigger_waveforms[self._trigger_id_decoding_config['trigger_id_channel_name']]['Amplitude (V)'],
+                            clock_waveform = this_trigger_waveforms[self._trigger_id_decoding_config['TLU_clock_channel_name']]['Amplitude (V)'],
+                            trigger_waveform = this_trigger_waveforms[self._trigger_id_decoding_config['trigger_channel_names'][0]]['Amplitude (V)'],
                             clock_edge_to_use = 'falling', # Hardcoded here, but seems to be the right one to use.
                         )
                         if raw_decoded_trigger_id == 0 and previous_decoded_trigger_id is not None:
@@ -405,7 +405,7 @@ class CAENDT5742Producer(pyeudaq.Producer):
         while self.is_running:
             with self._CAEN_lock:
                 if self._digitizer.get_acquisition_status()['at least one event available for readout'] == True:
-                    waveforms = self._digitizer.get_waveforms(get_time=False, get_ADCu_instead_of_volts=True)
+                    waveforms = self._digitizer.get_waveforms(get_time=False, get_ADCu_instead_of_volts=False)
                     # Waveforms is a list of dictionaries, each of which contains the waveforms from each trigger.
                     for this_trigger_waveforms in waveforms:
                         self.events_queue.put(this_trigger_waveforms)
