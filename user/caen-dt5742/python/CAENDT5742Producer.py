@@ -24,9 +24,14 @@ import time
 
 import pandas
 
-# Debugging imports:
-# ~ import pandas
-# ~ import warnings
+DEBUG_WAVEFORMS_DUMPING = True
+LOCATION_FOR_DUMPING_DATA = Path.home()/'Desktop/data'
+if DEBUG_WAVEFORMS_DUMPING:
+    import pandas
+    import datetime
+    
+    def create_a_timestamp():
+        return datetime.datetime.now().strftime("%Y%m%d%H%M")
 
 CAEN_CHANNELS_NAMES = [f'CH{_}' for _ in range(16)] + [f'trigger_group_{_}' for _ in [0,1]]
 
@@ -237,7 +242,7 @@ class CAENDT5742Producer(pyeudaq.Producer):
         self.channels_mapping = parse_channels_mapping(Path(conf['channels_mapping_file'])) # This stores the information regarding what is connected into each of the channels of the CAEN and the geometry.
         EUDAQ_INFO(f'The mapping of the channels was set to this: {self.channels_mapping}')
         
-        self.set_of_active_channels = set([ch for DUT_name in channels_mapping for ch in channels_mapping[DUT_name]])
+        self.set_of_active_channels = set([ch for DUT_name in self.channels_mapping for ch in self.channels_mapping[DUT_name]])
         
         # Manual configuration of parameters:
         for ch in [0,1]:
@@ -329,55 +334,54 @@ class CAENDT5742Producer(pyeudaq.Producer):
             if DEBUG_WAVEFORMS_DUMPING:
                 waveforms_to_dump = []
             n_trigger = 0
-            # ~ deleteme = []
             previous_decoded_trigger_id = None
             have_to_decode_trigger_id = hasattr(self, '_trigger_id_decoding_config')
             decoded_trigger_number_of_turns = 0
             while self.is_running:
-                # Creation of the caen event type and sub-type 
-                #event = pyeudaq.Event("CAENDT5748RawEvent", "CAENDT5748")
-                # XXX -- Need this new event type, or enough with the RawEvent?
-                event = pyeudaq.Event("RawEvent", "CAENDT5748")
-                event.SetTriggerN(n_trigger)
-                # BORE info
-                if n_trigger == 0:
-                    event.SetBORE()
-                    # Store the mapping of the channels literally as it was parsed.
-                    event.SetTag('channels_mapping_str', str(self.channels_mapping))
-                    # A set with the channels that were acquired randomly ordered, e.g. `{'CH8', 'CH2', 'CH13', 'CH10', 'CH15', 'CH5', 'CH0', 'CH1', 'CH3', 'CH4', 'trigger_group_0', 'CH11', 'CH14', 'trigger_group_1', 'CH12', 'CH9'}`.
-                    event.SetTag('set_of_active_channels', str(list(self.set_of_active_channels)))
-                    # A list with the names of the DUTs.
-                    event.SetTag('dut_names', str(self.channels_mapping.keys()))
-                    
-                    event.SetTag('sampling_frequency_MHz', repr(self._digitizer.get_sampling_frequency()))
-                    # Number of samples per waveform to decode the raw data.
-                    event.SetTag('n_samples_per_waveform', repr(self._digitizer.get_record_length()))
-                    n_dut = 0
-                    for dut_name, dut_channels in self.channels_mapping.items():
-                        dut_label = f'DUT_{n_dut}' # DUT_0, DUT_1, ...
-                        # For each device this tells how the connections were made, e.g. `'CH0:[(0,0),(0,1),(1,0)],CH1:[(3,3)]'`.
-                        event.SetTag(dut_name, str(tag_with_DUT_channels).replace('{','').replace('}','').replace(' ','').replace("'",'').replace('"',''))
-                        n_dut += 1
-                    
-                    event.SetTag(f'producer_name', str(self._name))
-                
                 # -- XXX - THe CHannel will give the information of thee position in x/y of the pad
                 #          within the DUT
                 # Extract the waveforms
                 if not self.events_queue.empty():
+                    # Creation of the caen event type and sub-type 
+                    # XXX -- Need this new event type, or enough with the RawEvent?
+                    event = pyeudaq.Event("RawEvent", "CAENDT5748")
+                    event.SetTriggerN(n_trigger)
+                    # BORE info
+                    if n_trigger == 0:
+                        event.SetBORE()
+                        # Store the mapping of the channels literally as it was parsed.
+                        event.SetTag('channels_mapping_str', str(self.channels_mapping))
+                        # A set with the channels that were acquired randomly ordered, e.g. `{'CH8', 'CH2', 'CH13', 'CH10', 'CH15', 'CH5', 'CH0', 'CH1', 'CH3', 'CH4', 'trigger_group_0', 'CH11', 'CH14', 'trigger_group_1', 'CH12', 'CH9'}`.
+                        event.SetTag('set_of_active_channels', str(list(self.set_of_active_channels)))
+                        # A list with the names of the DUTs.
+                        event.SetTag('dut_names', str(self.channels_mapping.keys()))
+                        
+                        event.SetTag('sampling_frequency_MHz', repr(self._digitizer.get_sampling_frequency()))
+                        # Number of samples per waveform to decode the raw data.
+                        event.SetTag('n_samples_per_waveform', repr(self._digitizer.get_record_length()))
+                        n_dut = 0
+                        for dut_name, dut_channels in self.channels_mapping.items():
+                            dut_label = f'DUT_{n_dut}' # DUT_0, DUT_1, ...
+                            # For each device this tells how the connections were made, e.g. `'CH0:[(0,0),(0,1),(1,0)],CH1:[(3,3)]'`.
+                            event.SetTag(dut_name, str(self.channels_mapping[dut_name]).replace('{','').replace('}','').replace(' ','').replace("'",'').replace('"',''))
+                            n_dut += 1
+                        
+                        event.SetTag(f'producer_name', str(self._name))
+                    
                     this_trigger_waveforms = self.events_queue.get()
                     n_trigger += 1
                     
-                    for ch in self.channels_names_list:
+                    for ch in self.set_of_active_channels:
                         serialized_data = np.array(this_trigger_waveforms[ch]['Amplitude (V)'], dtype=np.float32)
                         serialized_data = serialized_data.tobytes()
                         # Use the channel as Block Id
                         event.AddBlock(self.channels_to_int[ch], serialized_data)
                         
-                        # ~ df = pandas.DataFrame(this_trigger_waveforms[ch])
-                        # ~ df['channel'] = ch
-                        # ~ df['n_trigger'] = n_trigger
-                        # ~ deleteme.append(df)
+                        if DEBUG_WAVEFORMS_DUMPING:
+                            df = pandas.DataFrame(this_trigger_waveforms[ch])
+                            df['channel'] = ch
+                            df['n_trigger'] = n_trigger
+                            waveforms_to_dump.append(df)
                     
                     if have_to_decode_trigger_id:
                         raw_decoded_trigger_id = decode_trigger_id(
@@ -397,8 +401,6 @@ class CAENDT5742Producer(pyeudaq.Producer):
                     
                     self.SendEvent(event)
                     self.events_queue.task_done()
-            # ~ deleteme = pandas.concat(deleteme)
-            # ~ deleteme.to_pickle(f'~/Desktop/waveforms_CAEN_{str(self._digitizer.get_info()["SerialNumber"])}.pickle')
             
             if DEBUG_WAVEFORMS_DUMPING and len(waveforms_to_dump) > 0:
                 waveforms_to_dump = pandas.concat(waveforms_to_dump)
