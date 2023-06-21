@@ -18,8 +18,9 @@
 
 
 // Helper to facilitate legibility: 
-// Digitizer: { DUT: { channel : [ (row, col), (row, col), ... ], 
-using pixel_map = std::map<int, std:vector<std::array<int,2>> >;
+// Digitizer: { channel : [ (row, col), (row, col), ... ], 
+// Each channel can be bounded to several diodes/pixels
+using PixelMap = std::map<int, std::vector<std::array<int,2>> >;
 
 class CAENDT5748RawEvent2StdEventConverter: public eudaq::StdEventConverter {
     public:
@@ -28,16 +29,26 @@ class CAENDT5748RawEvent2StdEventConverter: public eudaq::StdEventConverter {
 
     private:
         void Initialize(eudaq::EventSPC bore, eudaq::ConfigurationSPC conf) const;
-        pixel_map _GetDUTPixelMap(const std::string & dut_tag, int device_id) const; 
+        PixelMap _GetDUTPixelMap(const std::string & dut_tag) const; 
         static std::map<int, std::string> _name;
+        // XXX -- NEEDED?
         static size_t _n_digitizers;
         static size_t _n_samples_per_waveform;
         static size_t _sampling_frequency_MHz;
         static std::map<int, size_t> _n_duts;
+        // Waveform starting t0 and Dt
+        static std::map<int, float> _t0;
+        static std::map<int, float> _dt;
+        // XXX - TBD?
         static std::map<int, std::vector<std::string> > _channel_names_list;
+        // XXX -- TBD?
         static std::map<int, std::vector<int> > _dut_channel_list;
-        // Digitizer: { DUT: { channel : [ (row, col), (row, col), ... ], 
-        static std::map<int, std::map<int, pixel_map> > _dut_channel_arrangement;
+        // { Digitizer: { DUT: { channel : [ (row, col), (row, col), ... ],  ... 
+        static std::map<int, std::map<int, PixelMap> > _dut_channel_arrangement;
+        // { Digitizer: { DUT: (n-row,n-col), ... 
+        static std::map<int, std::map<int, std::array<int,2>> > _nrows_ncolumns;
+        // { Digitizer: { DUT: npixels, ...
+        static std::map<int, std::map<int,int> > _npixels;
         // Human-readable name related with the internal DUT-id
         static std::map<int, std::map<std::string,int> > _dut_names_id;
         static std::map<int, std::vector<std::string> > DUTs_names;
@@ -54,9 +65,14 @@ size_t CAENDT5748RawEvent2StdEventConverter::_n_digitizers = 0;
 size_t CAENDT5748RawEvent2StdEventConverter::_n_samples_per_waveform;
 size_t CAENDT5748RawEvent2StdEventConverter::_sampling_frequency_MHz;
 std::map<int, size_t> CAENDT5748RawEvent2StdEventConverter::_n_duts;
+std::map<int, float> CAENDT5748RawEvent2StdEventConverter::_t0;
+std::map<int, float> CAENDT5748RawEvent2StdEventConverter::_dt;
+// -- FIXME -- Possible deprecate
 std::map<int, std::vector<std::string> > CAENDT5748RawEvent2StdEventConverter::_channel_names_list;
 std::map<int, std::vector<int> > CAENDT5748RawEvent2StdEventConverter::_dut_channel_list;
-pixel_map CAENDT5748RawEvent2StdEventConverter::_dut_channel_arrangement;
+std::map<int, std::map<int, PixelMap> > CAENDT5748RawEvent2StdEventConverter::_dut_channel_arrangement;
+std::map<int, std::map<int, std::array<int,2>> > CAENDT5748RawEvent2StdEventConverter::_nrows_ncolumns;
+std::map<int, std::map<int,int> > CAENDT5748RawEvent2StdEventConverter::_npixels;
 std::map<int, std::map<std::string,int> > CAENDT5748RawEvent2StdEventConverter::_dut_names_id;
 std::map<int, std::vector<std::string> > CAENDT5748RawEvent2StdEventConverter::DUTs_names;
 
@@ -77,83 +93,73 @@ void CAENDT5748RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, euda
     _n_samples_per_waveform = std::stoi(bore->GetTag("n_samples_per_waveform"));
     // The sampling frequency
     _sampling_frequency_MHz = std::stoi(bore->GetTag("sampling_frequency_MHz"));
-    // The number of DUTS
-    _n_duts[device_id] = std::stoi(bore->GetTag("number_of_DUTs"));
     
-    // XXX -- Is it needed this way? It could be implemented easily this info...
-    // XXX -- TBC: into a function
-    // Parse list with the names of the channels in the order they will appear in the raw data:
+    // Get the list of DUTs so it can be extracted all channels and row-col mapping:
     std::string s( bore->GetTag("dut_names") );
     for (char c : {'[', ']', '\'', '\"'}) {
         s.erase(remove(s.begin(), s.end(), c), s.end());
     }
     std::string delimiter = ", ";
     size_t pos = 0;
-    int dut_internal_id = 0
+    int dut_internal_id = 0;
     while((pos = s.find(delimiter)) != std::string::npos) {
         std::string token = s.substr(0, pos);
         _dut_names_id[device_id][token] = dut_internal_id;
         s.erase(0, pos + delimiter.length());
-        ++dut_internal_di;
+        ++dut_internal_id;
     }
     // And the last one...
     _dut_names_id[device_id][s] = dut_internal_id;
+    // The number of DUTS
+    _n_duts[device_id] = _dut_names_id[device_id].size();
 
+for(auto & KK: _dut_names_id[device_id])
+{
+std::cout << "--DEVICE: " ; 
+}
+std::cout << std::endl; std::cin.get();
     // Extract the tags for each DUT:
-    for(const auto & dutname_id: _dut_names_id) {
+    for(const auto & dutname_id: _dut_names_id[device_id]) {
         _dut_channel_arrangement[device_id][dutname_id.second] = _GetDUTPixelMap(bore->GetTag(dutname_id.first));
+        // Get the maximum nrows and ncolumns for the DUT
+        // Loop over the channels:
+        int nrow = -1;
+        int ncol = -1;
+        for(const auto & channel_listrowcol: _dut_channel_arrangement[device_id][dutname_id.second] ) {
+            // And loop over all the pixels bounded to this channel
+            for(const auto & rowcol: channel_listrowcol.second) {
+                if(rowcol[0] > nrow) {
+                    nrow = rowcol[0];
+                }
+                if(rowcol[1] > ncol) {
+                    ncol = (rowcol)[1];
+                }
+            }
+        }
+        _nrows_ncolumns[device_id][dutname_id.second] = { nrow, ncol };
+        // Total number of pixels
+       _npixels[device_id][dutname_id.second] = nrow*ncol;
     }
 
-    
-    /*
-    // For each DUT, build a matrix where the elements are integer numbers specifying the 
-    // position where the respective waveform begins in the raw data:
-    for (size_t n_DUT=0; n_DUT<_n_duts[device_id]; n_DUT++) {
-        // XXX --- Needed?
-        DUTs_names[device_id].push_back(bore->GetTag("DUT_"+std::to_string(n_DUT)+"_name"));
-        // Human-readable to internal id
-        _dut_names_id[device_id][*DUTs_names[deviced_id].back()] = 
-        // Gets something like e.g. `"[['CH4', 'CH5'], ['CH6', 'CH7']]"`.
-        s = bore->GetTag("DUT_"+std::to_string(n_DUT)+"_channels_matrix");
-        if (s.empty()) {
-            EUDAQ_THROW("Cannot get information about the channels to which the DUT named \""+DUTs_names[device_id][n_DUT]+"\" was connected.");
-        }
+    // Extract the initial (hardcoded to 0) and the temporal step value of the waveforms
+    // --- in SECONDS
+    _t0[device_id] = 0.0;
+    _dt[device_id] = (_sampling_frequency_MHz*1e6)/_n_samples_per_waveform;
 
-        // Identify the channels for this DUT
-        const std::regex re_channels("CH([0-9])*");
-        for(std::sregex_iterator it = std::sregex_iterator(s.begin(), s.end(), re_channels);
-                it != std::sregex_iterator();
-                ++it)
-        {
-            std::smatch m = *it;
-            _dut_channel_list[n_DUT].emplace_back( std::stoi(m[1].str().c_str()) );
-        }
 
-        // Get the arrangement
-        s = bore->GetTag("DUT_"+std::to_string(n_DUT)+"_channels_arrangement");
-        const std::regex re_arrangement("CH[0-9]*: ([0-9]*),([0-9]*)");
-        for(std::sregex_iterator it = std::sregex_iterator(s.begin(), s.end(), re_arrangement);
-                it != std::sregex_iterator();
-                ++it)
-        {
-            std::smatch m = *it;
-            // --- FIXME  error control?
-            _dut_channel_arrangement[device_id][n_DUT].push_back( { std::stoi(m[1].str().c_str()), std::stoi(m[2].str().c_str()) } );
-        }
-
-    }
-
-std::cout << "--> ";
+std::cout << "--> t0=" << _t0[device_id] << ", dt=" << _dt[device_id]*1e-6 << " [ns]; " ;
 for(auto & ndut_map: _dut_channel_arrangement[device_id])
 {
-    std::cout << "--> DUT-" << ndut_map.first << " [";
-    int _i = 0;
-    for(auto & chorder: ndut_map.second)
+    std::cout << "--> DUT-" << ndut_map.first << " {";
+    for(auto & ch_listpixels: ndut_map.second)
     {
-        std::cout << "--> CH-" << _i << " " << chorder[0] << " " << chorder[1] << std::endl;
-        ++_i;
+        std::cout << "--> CH- [" << ch_listpixels.first ;
+        for(auto & pixel: ch_listpixels.second) {
+            std::cout << " ROW: " << pixel[0] << " COL:" << pixel[1];
+        }
+        std::cout << " ] " << std::endl;
     }
-std::cout << "]" << std::endl;
+std::cout << "}" << std::endl;
 }
 std::cin.get();
 //std::ostringstream ossa;
@@ -176,8 +182,7 @@ std::cin.get();
     EUDAQ_DEBUG(" Initialize: DUT names-["+oss.str()+"]");
     oss.str("");
     oss.clear();
-    for(const auto & dutid_chlist: _dut_channel_list)
-    {
+    for(const auto & dutid_chlist: _dut_channel_list) {
         oss << " [DUT:" << dutid_chlist.first << "]-{";
         for(const auto & _ch: dutid_chlist.second)
         {
@@ -299,21 +304,21 @@ std::cin.get();*/
 
     const std::string producer_name = _name[d1->GetDeviceN()];
     // Each DUT is a plane
-    for(const auto & dutname_sensorid: _dut_names_id) {
-        // XXX - Can we use the dutname in the stdplane?? 
+    for(const auto & dutname_sensorid: _dut_names_id[dev_id]) {
+        // XXX - Can we provide a dutname in the stdplane?? 
         const int sensor_id = dutname_sensorid.second;        
         // Each DUT defines a plane
         eudaq::StandardPlane plane(sensor_id, "CAEN5748", producer_name);
-        // Define the size of the DUT (in row and columns) 
-        // XXX  --- Check it is fine
-        plane.SetSizeZS( (uint32_t)_dut_channel_arrangement[dev_id][dutname_sensorid.second].size(), 
-                (uint32_t)_dut_channel_arrangement[dev_id][dutname_sensorid.second].size(),
-                dut_chlist.second.size());
+        // Define the size of the DUT (in row and columns) --> Extracted from _nrows_ncolumns
+        // Remember in here: first columns, then rows
+        plane.SetSizeZS( (uint32_t)_nrows_ncolumns[dev_id][dutname_sensorid.second][1], 
+                (uint32_t)_nrows_ncolumns[dev_id][dutname_sensorid.second][0],
+                _npixels[dev_id][dutname_sensorid.second]);
         
         // Each channel is stored in a block
         uint8_t pixid = 0;
-        for(const auto & channel: dut_chlist.second) {
-            const size_t n_block = channel;
+        for(const auto & chlist_colrow: _dut_channel_arrangement[dev_id][dutname_sensorid.second]) {
+            const size_t n_block = chlist_colrow.first;
             std::vector<float> raw_data = uint8VectorToFloatVector(event->GetBlock(n_block));
 
             // XXX -- Make this sense? Just to avoid crashing... [PROV]
@@ -329,21 +334,12 @@ std::cin.get();*/
             
             // Note the signature introduce x,y -> col, row. Opposite which 
             // what we store
-            plane.SetPixel(pixid, 
-                    _dut_channel_arrangement[dev_id][dut_id][channel][1],
-                    _dut_channel_arrangement[dev_id][dut_id][channel][0],
-                    amplitude);
+            //plane.SetPixel(pixid,  ---> I think it is perfectly save using channel?
+            // XXX plane.SetPixel(n_block, chlist_colrow.second[1], chlist_colrow.second[0], amplitude);
             
-            // FIXME --- Hardcoded!
-            std::vector<float> samples_times;
-            for(size_t n_sample=0; n_sample<_n_samples_per_waveform; n_sample++) {
-                // Convert back into seconds
-                samples_times.push_back(n_sample*_sampling_frequency_MHz*1e6);
-            }
-
             std::vector<double> wf(raw_data.begin(), raw_data.end());
             // Set The Waveform
-            plane.SetWaveform(pixid, wf, samples_times[0], samples_times.back() );
+            plane.SetWaveform(pixid, wf, _t0[dev_id], _dt[dev_id] );
             
             ++pixid;
 /*std::cout << " The Raw data for CH-" << channel << ": [size: " << raw_data.size() << "]: " ;
@@ -361,10 +357,9 @@ std::cin.get();*/
     return true;
 }
 
-void CAENDT5748RawEvent2StdEventConverter::_GetDUTPixelMap(const std::string & dut_tag) {
+PixelMap CAENDT5748RawEvent2StdEventConverter::_GetDUTPixelMap(const std::string & dut_tag) const {
     
     // It must exist a tag with the name of the DUT
-    std::string s( bore->GetTag(dut tag) );
     // FIXME -- Error control: empyt string!!
     
     // Parsing something like:
@@ -372,13 +367,13 @@ void CAENDT5748RawEvent2StdEventConverter::_GetDUTPixelMap(const std::string & d
     
     // ---- Split in blocks of CH
     std::regex token(R"(\])");
-    std::vector<std::string> substrings(std::sregex_token_iterator(s.begin(), s.end(), token, -1), {});
+    std::vector<std::string> substrings(std::sregex_token_iterator(dut_tag.begin(), dut_tag.end(), token, -1), {});
 
     // For each substring: extract the channel and the list of col and rows
     std::regex re_ch(R"(CH(\d*):)");
     std::regex re_colrow(R"(\((\d+),(\d+)\))");
 
-    std::map<int,std::vector<std::array<int,2> > > ch;
+    PixelMap ch_dict;
     for(auto & chstr: substrings)
     {
         int current_channel = -1;
@@ -393,9 +388,10 @@ void CAENDT5748RawEvent2StdEventConverter::_GetDUTPixelMap(const std::string & d
         {
                std::smatch m = *cr;
                //std::cout << "[ colrow : " << m[1].str() << " " << m[2].str() <<  std::endl;
-               ch[current_channel].push_back({std::stoi(m[1].str()),std::stoi(m[2].str())});
+               ch_dict[current_channel].push_back({std::stoi(m[1].str()),std::stoi(m[2].str())});
         }
     }
 
-    return ch;
+    return ch_dict;
 }
+
