@@ -9,6 +9,9 @@
 #define HITMAPHISTOS_HH_
 
 #include <TH2I.h>
+#include <TH2F.h>
+#include <TH2D.h>
+#include <TH1F.h>
 #include <TFile.h>
 
 #include <map>
@@ -49,6 +52,8 @@ protected:
   TH1I **_nClusters_section;
   TH1I **_nClustersize_section;
   TH1I **_nHotPixels_section;
+  // For timing 
+  TH1F *_waveform;
 
 public:
   HitmapHistos(SimpleStandardPlane p, RootMonitor *mon);
@@ -97,6 +102,8 @@ public:
     return _nHotPixels_section[section];
   }
   TH1I *getNHotPixelsHisto() { return _nHotPixels; }
+  TH1F * getWaveformHisto() { return _waveform; }
+
   void setRootMonitor(RootMonitor *mon) { _mon = mon; }
 
 private:
@@ -120,6 +127,7 @@ private:
   bool is_RD53A;
   bool is_RD53B;
   bool is_RD53BQUAD;
+  bool is_CAENDT5742;
 };
 
 #ifdef __CINT__

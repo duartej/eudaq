@@ -35,6 +35,9 @@ public:
 
   int getTOT() const { return _tot; }
   int getLVL1() const { return _lvl1; }
+  std::vector<double> getWaveform() const { return _waveform; }
+  double getWaveformX0() const { return _waveform_x0; }
+  double getWaveformDX() const { return _waveform_dx; }
   void setLVL1(const int lvl1) { _lvl1 = lvl1; }
   void setTOT(const int tot) { _tot = tot; }
   void setWaveform(const std::vector<double> waveform) { _waveform = waveform; }
