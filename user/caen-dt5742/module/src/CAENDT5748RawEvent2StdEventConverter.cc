@@ -27,7 +27,6 @@ class CAENDT5748RawEvent2StdEventConverter: public eudaq::StdEventConverter {
         std::vector<float> uint8VectorToFloatVector(std::vector<uint8_t> data) const;
         int PolarityWF(const std::vector<float> & wf);
 
-
         static std::map<int, std::string> _name;
         // XXX -- NEEDED?
         static size_t _n_digitizers;
@@ -132,7 +131,7 @@ void CAENDT5748RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, euda
                 }
             }
         }
-        _nrows_ncolumns[device_id][dutname_id.second] = { nrow, ncol };
+        _nrows_ncolumns[device_id][dutname_id.second] = { nrow+1, ncol+1 };
         // Total number of pixels: Remember starting at 0, then 
        _npixels[device_id][dutname_id.second] = (nrow+1)*(ncol+1);
     }
