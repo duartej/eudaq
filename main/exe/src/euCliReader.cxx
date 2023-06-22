@@ -99,11 +99,17 @@ int main(int /*argc*/, const char **argv) {
         auto evstd = eudaq::StandardEvent::MakeShared();
         eudaq::StdEventConverter::Convert(ev, evstd, config_spc);
         std::cout<< ">>>>>"<< evstd->NumPlanes() <<"<<<<"<<std::endl;
+// FIXME ---> CHANGE!
+/*        for(unsigned int k = 0 ; k < ev->GetNumSubEvent(); ++k) {
+            auto evstd = eudaq::StandardEvent::MakeShared();
+            eudaq::StdEventConverter::Convert(ev->GetSubEvent(k), evstd, config_spc);
+            std::cout<< ">>>>> Sub-Event-"<< k << " Num. Planes:" << evstd->NumPlanes() <<"<<<<"<<std::endl;
+        }*/
       }
     }
 
     event_count ++;
   }
-  std::cout<< "There are "<< event_count << "Events"<<std::endl;
+  std::cout<< "There are "<< event_count << " Events"<<std::endl;
   return 0;
 }
