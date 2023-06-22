@@ -11,13 +11,6 @@
 #include <algorithm>
 #include <regex>
 
-// XXX PROV
-#include <iterator>
-// XXX PROV
-//
-
-
-// Helper to facilitate legibility: 
 // Digitizer: { channel : [ (row, col), (row, col), ... ], 
 // Each channel can be bounded to several diodes/pixels
 using PixelMap = std::map<int, std::vector<std::array<int,2>> >;
@@ -135,8 +128,8 @@ void CAENDT5748RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, euda
             }
         }
         _nrows_ncolumns[device_id][dutname_id.second] = { nrow, ncol };
-        // Total number of pixels
-       _npixels[device_id][dutname_id.second] = nrow*ncol;
+        // Total number of pixels: Remember starting at 0, then 
+       _npixels[device_id][dutname_id.second] = (nrow+1)*(ncol+1);
     }
 
     // Extract the initial (hardcoded to 0) and the temporal step value of the waveforms
@@ -144,25 +137,23 @@ void CAENDT5748RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, euda
     _t0[device_id] = 0.0;
     _dt[device_id] = (_sampling_frequency_MHz*1e6)/_n_samples_per_waveform;
 
-    // Print-out some info about the config data
+    // Print-out the topology of the sensor and wire-bonding
     EUDAQ_INFO(" Defined DUTs in [" +_name[device_id]+ "] digitizer: ");
     for(auto & dn_id: _dut_names_id[device_id]) {
-        EUDAQ_INFO(" [" + dn_id.first + "], internal-id:" + std::to_string(dn_id.second) +", "
-                + std::to_string(_dut_channel_arrangement[device_id][dn_id.second].size())
-                + " channels");
-        std::string list_pixels;
+        EUDAQ_INFO(" [" + dn_id.first + "], ID:" + std::to_string(dn_id.second) +", "
+                + "(rowsXcols): " + std::to_string(_nrows_ncolumns[device_id][dn_id.second][0])
+                + "x" + std::to_string(_nrows_ncolumns[device_id][dn_id.second][1])
+                + ", Total Pixels: " + std::to_string(_npixels[device_id][dn_id.second])
+                + ", Total channels: "
+                +std::to_string(_dut_channel_arrangement[device_id][dn_id.second].size()));
         for(const auto & ch_listpixels: _dut_channel_arrangement[device_id][dn_id.second]) {
-            list_pixels += "  "+std::to_string(_npixels[device_id][dn_id.second]) 
-                + "-CH" + std::to_string(ch_listpixels.first) + ": {";
+            std::string list_pixels;
             for(const auto & pixels: ch_listpixels.second) {
                 list_pixels += " ("+std::to_string(pixels[0]) + "," +std::to_string(pixels[1]) + ")";
             }
-            list_pixels += " }, ";
+            EUDAQ_INFO("   ==: CH" + std::to_string(ch_listpixels.first) + " ["+ list_pixels + " ]");
         }
-        EUDAQ_INFO(list_pixels);
     }
-
-std::cin.get();
 
     // Debugging print-out stuff
     EUDAQ_DEBUG(" Initialize:: nsamples_per_waveform: " + std::to_string(_n_samples_per_waveform) +
@@ -281,20 +272,15 @@ std::cin.get();*/
         eudaq::StandardPlane plane(sensor_id, "CAEN5748", producer_name);
         // Define the size of the DUT (in row and columns) --> Extracted from _nrows_ncolumns
         // Remember in here: first columns, then rows
-OJOOOOO -LA DEFINICION DEP IXELS
-std::cout << " SetSizeZS " << _npixels[dev_id][dutname_sensorid.second] << std::endl;
         plane.SetSizeZS( (uint32_t)_nrows_ncolumns[dev_id][dutname_sensorid.second][1], 
                 (uint32_t)_nrows_ncolumns[dev_id][dutname_sensorid.second][0],
                 _npixels[dev_id][dutname_sensorid.second]);
         
         // Each channel is stored in a block
-        uint8_t pixid = 0;
-        for(const auto & chlist_colrow: _dut_channel_arrangement[dev_id][dutname_sensorid.second]) {
-std::cout << " ch: " << chlist_colrow.first << std::endl;
-            const size_t n_block = chlist_colrow.first;
-std::cout << " ANTESDESPUES ch: " << chlist_colrow.first << std::endl;
+        int pixid = 0;
+        for(const auto & ch_colrowlist: _dut_channel_arrangement[dev_id][dutname_sensorid.second]) {
+            const size_t n_block = ch_colrowlist.first;
             std::vector<float> raw_data = uint8VectorToFloatVector(event->GetBlock(n_block));
-std::cout << " DESPUES ch: " << chlist_colrow.first << std::endl;
 
             // XXX -- Make this sense? Just to avoid crashing... [PROV]
             if(raw_data.size() == 0)
@@ -302,35 +288,29 @@ std::cout << " DESPUES ch: " << chlist_colrow.first << std::endl;
                 ++pixid;
                 continue;
             }
+            
+            // Each channel is wirebonded to the the list of pixels, assign
+            // same amplitude and waveform for all the belonging pixels
 
             // XXX -- Is this what we want? Or maybe extract the integral? 
             //        for sure we'd like to get the rise time as well?
             double amplitude = amplitude_from_waveform(raw_data);
-            
-            // Each channel is wirebonded to the the list of pixels, assuming the amplitude
-            // is shared between all the pixels (same for all of them)
             std::vector<double> wf(raw_data.begin(), raw_data.end());
-            for(const auto & pixel: chlist_colrow.second) {
+            
+            for(const auto & pixel: ch_colrowlist.second) {
                 // Note the signature introduce x,y -> col, row. Opposite to which we store
-std::cout << " =====" << pixel.size() << std::endl;
-//FALLA AQUI --> Probablmente tenga que reservar los pixeles (
                 plane.SetPixel(pixid, pixel[1], pixel[0], amplitude);
-std::cout << " ANTS: " << pixid << std::endl;
                 plane.SetWaveform(pixid, wf, _t0[dev_id], _dt[dev_id] );
-std::cout << " DEPSIUES: " << pixid << std::endl;
-                // Set The Waveform
                 ++pixid;
             }
-/*std::cout << " The Raw data for CH-" << channel << ": [size: " << raw_data.size() << "]: " ;
+/*std::cout << " The Raw data for CH-" << ch_colrowlist.first << ": [size: " << raw_data.size() << "]: " ;
 for(const auto & dt: raw_data)
 {
     std::cout << " " << dt ;
 }
 std::cout << std::endl;*/
         }
-std::cout << " PLANE:" << std::endl;
         d2->AddPlane(plane);
-std::cout << " PLANE DESPUES: " << std::endl;
     }
 /*d2->Print(std::cout);
 std::cin.get();*/
@@ -354,7 +334,6 @@ PixelMap CAENDT5748RawEvent2StdEventConverter::_GetDUTPixelMap(const std::string
     std::regex re_ch(R"(CH(\d*):)");
     std::regex re_colrow(R"(\((\d+),(\d+)\))");
 
-std::cout << "-----> " << dut_tag << std::endl;
     PixelMap ch_dict;
     for(auto & chstr: substrings)
     {
@@ -368,15 +347,25 @@ std::cout << "-----> " << dut_tag << std::endl;
         if( current_channel == -1 ) {
             // there is no integer in channel, therefore trigger_group_0 or trigger_group_1
             // HARDCODED in the producer, hardcoded here
-            if( chstr.find("trigger_group_0") != std::string::npos) {
-                current_channel = 16;
+            // They are also hardcoded as CH16 being in the pixel (0,0) and CH17 in the pixel (0,1)
+            // No matter what user introduces
+            if( chstr.find("trigger_group") != std::string::npos) {
+                if( chstr.find("group_0") != std::string::npos) {
+                    current_channel = 16;
+                    ch_dict[current_channel].push_back({0,0});
+                }
+                else if( chstr.find("group_1") != std::string::npos) {
+                    current_channel = 17;
+                    ch_dict[current_channel].push_back({0,1});
+                }
+                else {
+                    EUDAQ_ERROR("Malformed Connections file. Expecting `trigger_group_0` or"
+                            "`trigger_group_1`, but found `"+chstr+"`");
+                }
+                // pixel defined already
+                continue;
             }
-            else if( chstr.find("trigger_group_1") != std::string::npos) {
-                current_channel = 17;
-            }
-            // -- TODO - Error control?
         }
-std::cout << "-----> " << current_channel << " === " << chstr << std::endl;
 
         for(std::sregex_iterator cr = std::sregex_iterator(chstr.begin(),chstr.end(),re_colrow); cr != std::sregex_iterator();++cr) {
             std::smatch m = *cr;
