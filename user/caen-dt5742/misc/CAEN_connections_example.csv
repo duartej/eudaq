@@ -1,0 +1,17 @@
+DUT_name,row,col,channel_name
+time_reference_1,0,1,CH0
+time_reference_1,0,0,CH1
+TI143,0,1,CH2
+TI123,0,1,CH3
+TI122,0,1,CH4
+TI116,0,1,CH5
+TI115,0,1,CH6
+time_reference_2,0,1,CH7
+TI143,0,0,CH8
+TI123,0,0,CH9
+TI122,0,0,CH10
+TI116,0,0,CH11
+TI115,0,0,CH12
+time_reference_2,0,0,CH13
+trigger,-1,-1,trigger_group_0
+trigger,-1,-1,trigger_group_1
