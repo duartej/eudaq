@@ -16,6 +16,9 @@ protected:
   int _lvl1;
   int _reduceX;
   int _reduceY;
+  std::vector<double> _waveform;
+  double _waveform_x0;
+  double _waveform_dx;
 
 public:
   SimpleStandardHit(const int x, const int y)
@@ -34,6 +37,9 @@ public:
   int getLVL1() const { return _lvl1; }
   void setLVL1(const int lvl1) { _lvl1 = lvl1; }
   void setTOT(const int tot) { _tot = tot; }
+  void setWaveform(const std::vector<double> waveform) { _waveform = waveform; }
+  void setWaveformX0(double x0) { _waveform_x0 = x0; }
+  void setWaveformDX(double dx) { _waveform_dx = dx; }
   // void reduce(const int reduceX, const int reduceY) {_reduceX = reduceX;
   // _reduceY = reduceY;}
   // does this pixel use analog information ?
