@@ -82,6 +82,7 @@ Converting(eudaq::EventSPC d1, eudaq::StandardEventSP d2, eudaq::ConfigurationSP
     for(auto& hitPixel: pixelVec) {
 	StandardPlaneMap[hitPixel.channel].PushPixelHelper(hitPixel.x, hitPixel.y, hitPixel.tot+1+hitDiscConf, 0, false, hitPixel.lv1);
     }
+
     for(auto& planePair: StandardPlaneMap) {
 	d2->AddPlane(planePair.second);
     }  
