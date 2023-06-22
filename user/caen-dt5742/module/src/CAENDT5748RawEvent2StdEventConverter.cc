@@ -22,7 +22,12 @@ class CAENDT5748RawEvent2StdEventConverter: public eudaq::StdEventConverter {
 
     private:
         void Initialize(eudaq::EventSPC bore, eudaq::ConfigurationSPC conf) const;
-        PixelMap _GetDUTPixelMap(const std::string & dut_tag) const; 
+        PixelMap GetDUTPixelMap(const std::string & dut_tag) const; 
+        // Helper functions
+        std::vector<float> uint8VectorToFloatVector(std::vector<uint8_t> data) const;
+        int PolarityWF(const std::vector<float> & wf);
+
+
         static std::map<int, std::string> _name;
         // XXX -- NEEDED?
         static size_t _n_digitizers;
@@ -110,7 +115,7 @@ void CAENDT5748RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, euda
 
     // Extract the tags for each DUT:
     for(const auto & dutname_id: _dut_names_id[device_id]) {
-        _dut_channel_arrangement[device_id][dutname_id.second] = _GetDUTPixelMap(bore->GetTag(dutname_id.first));
+        _dut_channel_arrangement[device_id][dutname_id.second] = GetDUTPixelMap(bore->GetTag(dutname_id.first));
         // Get the maximum nrows and ncolumns for the DUT
         // Loop over the channels:
         int nrow = -1;
@@ -165,7 +170,7 @@ void CAENDT5748RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, euda
     EUDAQ_DEBUG(" Initialize:: Channel list (internal-ids): [ " + oss.str() +" ]");
 }
 
-std::vector<float> uint8VectorToFloatVector(std::vector<uint8_t> data) {
+std::vector<float> CAENDT5748RawEvent2StdEventConverter::uint8VectorToFloatVector(std::vector<uint8_t> data) const {
     // Everything in this function, except for this single line, was provided to me by ChatGPT. Amazing.
     std::vector<float> result;
     // size the result vector appropriately
@@ -189,6 +194,19 @@ std::vector<float> uint8VectorToFloatVector(std::vector<uint8_t> data) {
     return result;
 }
 
+int CAENDT5748RawEvent2StdEventConverter::PolarityWF(const std::vector<float> & wf) {
+    // Extract polarity -- XXX-- Just do it once ? -- then, TODO
+    auto itminmax = std::minmax_element(wf.begin(), wf.end());
+    const float min = *itminmax.first;
+    const float max = *itminmax.second;
+    if( std::abs(*itminmax.first) > std::abs(*itminmax.second) ) {
+        return -1;
+    }
+    
+    return 1;
+}
+
+
 float median(std::vector<float>& vec) {
     std::sort(vec.begin(), vec.end());
     int size = vec.size();
@@ -208,6 +226,8 @@ float amplitude_from_waveform(std::vector<float>& waveform) {
     float base_line = median(waveform);
     return max(waveform) - base_line;
 }
+
+
 
 bool CAENDT5748RawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdEventSP d2, eudaq::ConfigSPC conf) const {
 
@@ -318,7 +338,7 @@ std::cin.get();*/
     return true;
 }
 
-PixelMap CAENDT5748RawEvent2StdEventConverter::_GetDUTPixelMap(const std::string & dut_tag) const {
+PixelMap CAENDT5748RawEvent2StdEventConverter::GetDUTPixelMap(const std::string & dut_tag) const {
     
     // It must exist a tag with the name of the DUT
     // FIXME -- Error control: empyt string!!
@@ -372,7 +392,6 @@ PixelMap CAENDT5748RawEvent2StdEventConverter::_GetDUTPixelMap(const std::string
             //std::cout << "[ colrow : " << m[1].str() << " " << m[2].str() <<  std::endl;
             ch_dict[current_channel].push_back({std::stoi(m[1].str()),std::stoi(m[2].str())});
         }
-
     }
 
     return ch_dict;
