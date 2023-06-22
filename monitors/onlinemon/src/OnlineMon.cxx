@@ -175,13 +175,6 @@ void RootMonitor::DoReceive(eudaq::EventSP evsp) {
     stdev = eudaq::StandardEvent::MakeShared();
     eudaq::StdEventConverter::Convert(evsp, stdev, eu_cfgPtr);
   }
-// FIXME --> CHANGE IT! debug stuff
-/*std::cout << "------> WHO ARE YOU?? " << std::endl;
-stdev->Print(std::cout);
-std::cin.get();
-std::cout << "------> WHO ARE YOU?? EVENTSP " << std::endl;
-evsp->Print(std::cout);
-std::cin.get();*/
   
   uint32_t ev_plane_c = stdev->NumPlanes();
   if(m_ev_rec_n < 10){
