@@ -159,12 +159,12 @@ HitmapHistos::HitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
         for(unsigned int col = 0; col < _maxX; ++col) {
             for(unsigned int row = 0; row < _maxY; ++row) {
                 const unsigned int pixid = col * _maxY + row;
-                sprintf(out, "%s %i Waveform ", _sensor.c_str(), _id);
+                sprintf(out, "%s %i Waveform %i (Col:%i,Row:%i)", _sensor.c_str(), _id, pixid,col,row);
                 sprintf(out2, "h_waveform_%s_%i_%i", _sensor.c_str(), _id, pixid);
                 // XXX -- HARDCODED!!  I need to extract it from config
                 // Automatic binning:
                 //_waveforms[pixid] = new TH1F(out2, out, 1, 1,0); 
-                _waveforms[pixid] = new TH1F(out2, out, 1024, -0.5,1023.5); 
+                _waveforms[pixid] = new TH2F(out2, out, 1024, -0.5,1023.5, 200, -1.0, 1.0); 
                 _waveforms[pixid]->SetCanExtend(TH1::kAllAxes);
             }
         }
@@ -298,7 +298,7 @@ void HitmapHistos::Fill(const SimpleStandardHit &hit) {
   }
 
   // FIXME -- Not always, one each 1000 or so?
-  if( is_CAENDT5742 && (FILLED_WF % 500) == 0 ) {
+  if( is_CAENDT5742 ) { //&& (FILLED_WF % 500) == 0 ) {
       const std::vector<double> wf = hit.getWaveform();
       const float dt = hit.getWaveformDX();
       std::vector<double> t;
@@ -308,7 +308,7 @@ void HitmapHistos::Fill(const SimpleStandardHit &hit) {
           _s.push_back(_k);
       }
       const unsigned int pixid = pixel_x * _maxY + pixel_y;
-      _waveforms[pixid]->FillN(wf.size(), &_s[0], &(hit.getWaveform()[0]));
+      _waveforms[pixid]->FillN(wf.size(), &_s[0], &(hit.getWaveform()[0]), nullptr, 1);
   }
   ++FILLED_WF;
 }

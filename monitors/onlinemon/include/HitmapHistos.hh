@@ -53,7 +53,7 @@ protected:
   TH1I **_nClustersize_section;
   TH1I **_nHotPixels_section;
   // For timing 
-  std::map<int,TH1F*> _waveforms;
+  std::map<int,TH2F*> _waveforms;
 
 public:
   HitmapHistos(SimpleStandardPlane p, RootMonitor *mon);
@@ -103,7 +103,7 @@ public:
   }
   TH1I *getNHotPixelsHisto() { return _nHotPixels; }
   // Per pixel
-  TH1F * getWaveformHisto(unsigned int pixel_id) { return _waveforms[pixel_id]; }
+  TH2F * getWaveformHisto(unsigned int pixel_id) { return _waveforms[pixel_id]; }
 
   void setRootMonitor(RootMonitor *mon) { _mon = mon; }
 

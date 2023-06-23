@@ -230,7 +230,7 @@ void HitmapCollection::registerPlane(const SimpleStandardPlane &p) {
 
     if(p.is_CAENDT5742) {
         // The pixel id --> i x n_row + j (i-index column, j-index row)
-        std::map<int, TH1F*> wf_histos;
+        std::map<int, TH2F*> wf_histos;
         std::map<int, std::string> wf_histoname;
         for(unsigned int col = 0; col < p.getMaxX(); ++col) {
             for(unsigned int row = 0; row < p.getMaxY(); ++row) {
@@ -240,7 +240,7 @@ void HitmapCollection::registerPlane(const SimpleStandardPlane &p) {
                     std::to_string(col) + "," + std::to_string(row);
                 wf_histos[pixid] = getHitmapHistos(p.getName(), p.getID())->getWaveformHisto(pixid);
                 _mon->getOnlineMon()->registerTreeItem(wf_histoname[pixid]);
-                _mon->getOnlineMon()->registerHisto(wf_histoname[pixid], wf_histos[pixid], "HIST", 0);
+                _mon->getOnlineMon()->registerHisto(wf_histoname[pixid], wf_histos[pixid], "COLZ", 0);
             }
         }
         sprintf(tree, "%s/Sensor %i/Waveforms", p.getName().c_str(), p.getID());
