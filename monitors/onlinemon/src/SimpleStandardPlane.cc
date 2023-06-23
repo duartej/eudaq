@@ -265,7 +265,7 @@ void SimpleStandardPlane::setPixelType(std::string name) {
     is_RD53BQUAD = true;
     is_UNKNOWN = false;
     AnalogPixelType = true;
-  } else if(name.find("CAENDT5748") != std::string::npos) {
+  } else if(name.find("CAEN") != std::string::npos) {
     is_CAENDT5742 = true;
     is_UNKNOWN = false;
     AnalogPixelType = true;
