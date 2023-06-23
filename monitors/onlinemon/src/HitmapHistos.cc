@@ -32,14 +32,14 @@ HitmapHistos::HitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
     is_RD53B = true;
   } else if (_sensor == std::string("RD53BQUAD")) {
     is_RD53BQUAD = true;
+  } else if (_sensor.find("CAEN") != std::string::npos) {
+    is_CAENDT5742 = true;
   } else if ((_sensor == std::string("USBPIX")) || (_sensor.find("USBPIXI-") != std::string::npos)) {
     is_USBPIX = true;
   } else if ((_sensor == std::string("USBPIXI4")) || (_sensor.find("USBPIXI4-") == std::string::npos)) {
     is_USBPIXI4 = true;
   } else if (_sensor.find("USBPIXI4B") != std::string::npos) {
     is_USBPIXI4 = true;
-  } else if (_sensor.find("CAENDT5748") != std::string::npos) {
-    is_CAENDT5742 = true;
   }
   is_DEPFET = p.is_DEPFET;
 
@@ -154,13 +154,21 @@ HitmapHistos::HitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
     sprintf(out2, "h_hitmapSections_%s_%i", _sensor.c_str(), _id);
     _hitmapSections = new TH1I(out2, out, mimosa26_max_section, _id, _id + 1);
     
-    // Timing 
-    sprintf(out, "%s %i Waveform ", _sensor.c_str(), _id);
-    sprintf(out2, "h_waveform_%s_%i", _sensor.c_str(), _id);
-    // FIXME -- Hardcoded so far, where should I get the n_sample? 
-    // XXX -- Convert to time? (where should I get thi sinfo?)
-    _waveform = new TH1F(out2, out,  1024, -0.5, 1023.5); 
-
+    //  Timing -- Only for CAEN
+    if( is_CAENDT5742 ) {
+        for(unsigned int col = 0; col < _maxX; ++col) {
+            for(unsigned int row = 0; row < _maxY; ++row) {
+                const unsigned int pixid = col * _maxY + row;
+                sprintf(out, "%s %i Waveform ", _sensor.c_str(), _id);
+                sprintf(out2, "h_waveform_%s_%i_%i", _sensor.c_str(), _id, pixid);
+                // XXX -- HARDCODED!!  I need to extract it from config
+                // Automatic binning:
+                //_waveforms[pixid] = new TH1F(out2, out, 1, 1,0); 
+                _waveforms[pixid] = new TH1F(out2, out, 1024, -0.5,1023.5); 
+                _waveforms[pixid]->SetCanExtend(TH1::kAllAxes);
+            }
+        }
+    }
 
     for (unsigned int section = 0; section < mimosa26_max_section; section++) {
       sprintf(out, "%i%c", _id, (section + 65));
@@ -248,6 +256,9 @@ int HitmapHistos::zero_plane_array() {
   return 0;
 }
 
+// Use it to dump just a few wf (every 1000)
+static int FILLED_WF = 0;
+
 void HitmapHistos::Fill(const SimpleStandardHit &hit) {
   int pixel_x = hit.getX();
   int pixel_y = hit.getY();
@@ -286,14 +297,26 @@ void HitmapHistos::Fill(const SimpleStandardHit &hit) {
       _lvl1Distr->Fill(hit.getLVL1());
   }
 
-  if( is_CAENDT5742 ) {
+  // FIXME -- Not always, one each 1000 or so?
+  if( is_CAENDT5742) { // && (FILLED_WF % 1000) == 0 ) {
       const std::vector<double> wf = hit.getWaveform();
       const float dt = hit.getWaveformDX();
       std::vector<double> t;
+      std::vector<double> _s;
       for(size_t _k = hit.getWaveformX0(); _k < wf.size(); ++_k) {
           t.push_back( _k*dt );
+          _s.push_back(_k);
       }
-      _waveform->FillN(wf.size(), &t[0], &(hit.getWaveform()[0]));
+      const unsigned int pixid = pixel_x * _maxY + pixel_y;
+/*std::cout << "PIXEL: << " << pixid << " (" << pixel_x << "," << pixel_y << ")" << std::endl;
+for(size_t __k = 0 ; __k < wf.size(); ++__k)
+{
+    std::cout << " [" << t[__k] << ":" << hit.getWaveform()[__k] << " ]" ;
+}
+std::cout << std::endl;*/
+      //_waveforms[pixid]->FillN(wf.size(), &t[0], &(hit.getWaveform()[0]));
+      _waveforms[pixid]->FillN(wf.size(), &_s[0], &(hit.getWaveform()[0]));
+      ++FILLED_WF;
   }
 }
 

@@ -228,8 +228,25 @@ void HitmapCollection::registerPlane(const SimpleStandardPlane &p) {
         tree, getHitmapHistos(p.getName(), p.getID())->getHotPixelMapHisto(),
         "COLZ", 0);
 
-    sprintf(tree, "%s/Sensor %i", p.getName().c_str(), p.getID());
-    _mon->getOnlineMon()->makeTreeItemSummary(tree);
+    if(p.is_CAENDT5742) {
+        // The pixel id --> i x n_row + j (i-index column, j-index row)
+        std::map<int, TH1F*> wf_histos;
+        std::map<int, std::string> wf_histoname;
+        for(unsigned int col = 0; col < p.getMaxX(); ++col) {
+            for(unsigned int row = 0; row < p.getMaxY(); ++row) {
+                const unsigned int pixid = col * p.getMaxY() + row;
+                wf_histoname[pixid] = p.getName()+"/Sensor " + 
+                    std::to_string(p.getID()) + "/Waveforms/Pixel " + 
+                    std::to_string(col) + "," + std::to_string(row);
+                wf_histos[pixid] = getHitmapHistos(p.getName(), p.getID())->getWaveformHisto(pixid);
+                _mon->getOnlineMon()->registerTreeItem(wf_histoname[pixid]);
+                _mon->getOnlineMon()->registerHisto(wf_histoname[pixid], wf_histos[pixid]);
+            }
+        }
+        sprintf(tree, "%s/Sensor %i/Waveforms", p.getName().c_str(), p.getID());
+        _mon->getOnlineMon()->makeTreeItemSummary(tree);
+    }
+
 
     if (p.is_MIMOSA26) {
       char mytree[4][1024]; // holds the number of histogramms for each section,
