@@ -240,7 +240,7 @@ void HitmapCollection::registerPlane(const SimpleStandardPlane &p) {
                     std::to_string(col) + "," + std::to_string(row);
                 wf_histos[pixid] = getHitmapHistos(p.getName(), p.getID())->getWaveformHisto(pixid);
                 _mon->getOnlineMon()->registerTreeItem(wf_histoname[pixid]);
-                _mon->getOnlineMon()->registerHisto(wf_histoname[pixid], wf_histos[pixid]);
+                _mon->getOnlineMon()->registerHisto(wf_histoname[pixid], wf_histos[pixid], "HIST", 0);
             }
         }
         sprintf(tree, "%s/Sensor %i/Waveforms", p.getName().c_str(), p.getID());

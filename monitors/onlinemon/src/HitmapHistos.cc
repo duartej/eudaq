@@ -298,7 +298,7 @@ void HitmapHistos::Fill(const SimpleStandardHit &hit) {
   }
 
   // FIXME -- Not always, one each 1000 or so?
-  if( is_CAENDT5742) { // && (FILLED_WF % 1000) == 0 ) {
+  if( is_CAENDT5742 && (FILLED_WF % 500) == 0 ) {
       const std::vector<double> wf = hit.getWaveform();
       const float dt = hit.getWaveformDX();
       std::vector<double> t;
@@ -308,16 +308,9 @@ void HitmapHistos::Fill(const SimpleStandardHit &hit) {
           _s.push_back(_k);
       }
       const unsigned int pixid = pixel_x * _maxY + pixel_y;
-/*std::cout << "PIXEL: << " << pixid << " (" << pixel_x << "," << pixel_y << ")" << std::endl;
-for(size_t __k = 0 ; __k < wf.size(); ++__k)
-{
-    std::cout << " [" << t[__k] << ":" << hit.getWaveform()[__k] << " ]" ;
-}
-std::cout << std::endl;*/
-      //_waveforms[pixid]->FillN(wf.size(), &t[0], &(hit.getWaveform()[0]));
       _waveforms[pixid]->FillN(wf.size(), &_s[0], &(hit.getWaveform()[0]));
-      ++FILLED_WF;
   }
+  ++FILLED_WF;
 }
 
 void HitmapHistos::Fill(const SimpleStandardPlane &plane) {
@@ -487,6 +480,7 @@ void HitmapHistos::Write() {
   _clusterXWidth->Write();
   _clusterYWidth->Write();
   _hitmapSections->Write();
+  // FIXME --- Missing the Waveforms writing
   for (unsigned int section = 0; section < mimosa26_max_section; section++) {
     _nClusters_section[section]->Write();
     _nHits_section[section]->Write();
