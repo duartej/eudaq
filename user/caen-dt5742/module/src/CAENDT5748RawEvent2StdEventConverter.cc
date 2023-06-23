@@ -10,6 +10,8 @@
 #include <cstdint>
 #include <algorithm>
 #include <regex>
+#include <numeric>
+#include <cmath>
 
 // Digitizer: { channel : [ (row, col), (row, col), ... ], 
 // Each channel can be bounded to several diodes/pixels
@@ -24,8 +26,9 @@ class CAENDT5748RawEvent2StdEventConverter: public eudaq::StdEventConverter {
         void Initialize(eudaq::EventSPC bore, eudaq::ConfigurationSPC conf) const;
         PixelMap GetDUTPixelMap(const std::string & dut_tag) const; 
         // Helper functions
-        std::vector<float> uint8VectorToFloatVector(std::vector<uint8_t> data) const;
-        int PolarityWF(const std::vector<float> & wf);
+        std::vector<double> uint8VectorToDoubleVector(std::vector<uint8_t> data) const;
+        int PolarityWF(const std::vector<double> & wf) const;
+        double AmplitudeWF(const std::vector<double> & wf) const;
 
         static std::map<int, std::string> _name;
         // XXX -- NEEDED?
@@ -169,13 +172,13 @@ void CAENDT5748RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, euda
     EUDAQ_DEBUG(" Initialize:: Channel list (internal-ids): [ " + oss.str() +" ]");
 }
 
-std::vector<float> CAENDT5748RawEvent2StdEventConverter::uint8VectorToFloatVector(std::vector<uint8_t> data) const {
+std::vector<double> CAENDT5748RawEvent2StdEventConverter::uint8VectorToDoubleVector(std::vector<uint8_t> data) const {
     // Everything in this function, except for this single line, was provided to me by ChatGPT. Amazing.
-    std::vector<float> result;
+    std::vector<double> result;
     // size the result vector appropriately
-    result.resize(data.size() / sizeof(float)); 
+    result.resize(data.size() / sizeof(double)); 
     // cast the pointer to float
-    float* resultPtr = reinterpret_cast<float*>(&result[0]);
+    double* resultPtr = reinterpret_cast<double*>(&result[0]);
 
     // get a pointer to the data in the uint8_t vector
     uint8_t* dataPtr = &data[0];
@@ -183,17 +186,18 @@ std::vector<float> CAENDT5748RawEvent2StdEventConverter::uint8VectorToFloatVecto
     // get the size of the data in the uint8_t vector
     size_t dataSize = data.size(); 
 
-    for (size_t i = 0; i < dataSize; i += sizeof(float)) {
+    for (size_t i = 0; i < dataSize; i += sizeof(double)) {
         // cast the value at dataPtr to float and store in result vector
-        *resultPtr = *reinterpret_cast<float*>(dataPtr); 
+        *resultPtr = *reinterpret_cast<double*>(dataPtr); 
         resultPtr++;
-        dataPtr += sizeof(float);
+        dataPtr += sizeof(double);
     }
     
     return result;
 }
 
-int CAENDT5748RawEvent2StdEventConverter::PolarityWF(const std::vector<float> & wf) {
+// FIXME -- Calculate it once: use a memoizer
+int CAENDT5748RawEvent2StdEventConverter::PolarityWF(const std::vector<double> & wf) const {
     // Extract polarity -- XXX-- Just do it once ? -- then, TODO
     auto itminmax = std::minmax_element(wf.begin(), wf.end());
     const float min = *itminmax.first;
@@ -201,29 +205,49 @@ int CAENDT5748RawEvent2StdEventConverter::PolarityWF(const std::vector<float> & 
     if( std::abs(*itminmax.first) > std::abs(*itminmax.second) ) {
         return -1;
     }
-    
     return 1;
 }
 
 
-float median(std::vector<float>& vec) {
-    std::sort(vec.begin(), vec.end());
-    int size = vec.size();
-    if (size % 2 == 0) {
-        return (vec[size/2 - 1] + vec[size/2]) / 2.0;
-    } else {
-        return vec[size/2];
+double CAENDT5748RawEvent2StdEventConverter::AmplitudeWF(const std::vector<double>& waveform) const {
+    // Rough estimation of the baseline using the median
+    // But first use the right polarity to be sure we sort properly
+    const int polarity = PolarityWF(waveform); 
+    std::vector<double> wf_abs(waveform);
+    for(double & v: wf_abs) {
+        v * polarity;
     }
-}
+    // Sorted: smaller firts
+    std::sort(wf_abs.begin(), wf_abs.end());
+    const size_t wfsize = wf_abs.size();
+    if(wfsize == 0) {
+        return 0.0;
+    }
 
-float max(const std::vector<float>& vec) {
-    auto it = std::max_element(vec.begin(), vec.end());
-    return *it;
-}
+    double baseline = 0;
+    if(wfsize % 2 == 0) {
+        // If even, we need to obtain the average of the two central values
+        baseline = (wf_abs[wfsize/2 - 1]+wf_abs[wfsize/2])/2.0;
+    } 
+    else {
+        baseline = wf_abs[wfsize/2];
+    }
+    // We need to evaluate a kind of sigma, to get an estimation
+    // if there is a signal there
+    const double wf_amplitude_max = wf_abs[wfsize-1];
 
-float amplitude_from_waveform(std::vector<float>& waveform) {
-    float base_line = median(waveform);
-    return max(waveform) - base_line;
+    // --> Calculate the deviation standard -- XXX - ?
+    const double mean = std::accumulate(wf_abs.begin(), wf_abs.end(),0.0)/wfsize;
+    auto sum_term = [mean](double init, double value)-> double { return init + (value - mean)*(value - mean); };
+    const double variance = std::accumulate(wf_abs.begin(), wf_abs.end(), 0.0, sum_term);
+    const double stddev = std::sqrt(variance/wfsize);
+    
+    // Assume 3 sigma to be signal
+    if( wf_amplitude_max > 3.0*stddev ) {
+        return wf_amplitude_max*polarity;
+    }
+
+    return 0.0;
 }
 
 
@@ -299,7 +323,7 @@ std::cin.get();*/
         int pixid = 0;
         for(const auto & ch_colrowlist: _dut_channel_arrangement[dev_id][dutname_sensorid.second]) {
             const size_t n_block = ch_colrowlist.first;
-            std::vector<float> raw_data = uint8VectorToFloatVector(event->GetBlock(n_block));
+            std::vector<double> raw_data = uint8VectorToDoubleVector(event->GetBlock(n_block));
 
             // XXX -- Make this sense? Just to avoid crashing... [PROV]
             if(raw_data.size() == 0)
@@ -313,7 +337,12 @@ std::cin.get();*/
 
             // XXX -- Is this what we want? Or maybe extract the integral? 
             //        for sure we'd like to get the rise time as well?
-            double amplitude = amplitude_from_waveform(raw_data);
+            double amplitude = AmplitudeWF(raw_data);
+            if(std::abs(amplitude) < 1e-9) {
+                // Supress the hit, no signal was found
+                continue;
+            }
+
             std::vector<double> wf(raw_data.begin(), raw_data.end());
             
             for(const auto & pixel: ch_colrowlist.second) {
