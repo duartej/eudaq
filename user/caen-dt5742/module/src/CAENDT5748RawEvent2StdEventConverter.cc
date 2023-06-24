@@ -26,9 +26,9 @@ class CAENDT5748RawEvent2StdEventConverter: public eudaq::StdEventConverter {
         void Initialize(eudaq::EventSPC bore, eudaq::ConfigurationSPC conf) const;
         PixelMap GetDUTPixelMap(const std::string & dut_tag) const; 
         // Helper functions
-        std::vector<double> uint8VectorToDoubleVector(std::vector<uint8_t> data) const;
-        int PolarityWF(const std::vector<double> & wf) const;
-        double AmplitudeWF(const std::vector<double> & wf) const;
+        std::vector<float> uint8VectorToFloatVector(std::vector<uint8_t> data) const;
+        int PolarityWF(const std::vector<float> & wf) const;
+        float AmplitudeWF(const std::vector<float> & wf) const;
 
         static std::map<int, std::string> _name;
         // XXX -- NEEDED?
@@ -172,13 +172,13 @@ void CAENDT5748RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, euda
     EUDAQ_DEBUG(" Initialize:: Channel list (internal-ids): [ " + oss.str() +" ]");
 }
 
-std::vector<double> CAENDT5748RawEvent2StdEventConverter::uint8VectorToDoubleVector(std::vector<uint8_t> data) const {
+std::vector<float> CAENDT5748RawEvent2StdEventConverter::uint8VectorToFloatVector(std::vector<uint8_t> data) const {
     // Everything in this function, except for this single line, was provided to me by ChatGPT. Amazing.
-    std::vector<double> result;
+    std::vector<float> result;
     // size the result vector appropriately
-    result.resize(data.size() / sizeof(double)); 
+    result.resize(data.size() / sizeof(float)); 
     // cast the pointer to float
-    double* resultPtr = reinterpret_cast<double*>(&result[0]);
+    float* resultPtr = reinterpret_cast<float*>(&result[0]);
 
     // get a pointer to the data in the uint8_t vector
     uint8_t* dataPtr = &data[0];
@@ -186,18 +186,18 @@ std::vector<double> CAENDT5748RawEvent2StdEventConverter::uint8VectorToDoubleVec
     // get the size of the data in the uint8_t vector
     size_t dataSize = data.size(); 
 
-    for (size_t i = 0; i < dataSize; i += sizeof(double)) {
+    for (size_t i = 0; i < dataSize; i += sizeof(float)) {
         // cast the value at dataPtr to float and store in result vector
-        *resultPtr = *reinterpret_cast<double*>(dataPtr); 
+        *resultPtr = *reinterpret_cast<float*>(dataPtr); 
         resultPtr++;
-        dataPtr += sizeof(double);
+        dataPtr += sizeof(float);
     }
-    
+
     return result;
 }
 
 // FIXME -- Calculate it once: use a memoizer
-int CAENDT5748RawEvent2StdEventConverter::PolarityWF(const std::vector<double> & wf) const {
+int CAENDT5748RawEvent2StdEventConverter::PolarityWF(const std::vector<float> & wf) const {
     // Extract polarity -- XXX-- Just do it once ? -- then, TODO
     auto itminmax = std::minmax_element(wf.begin(), wf.end());
     const float min = *itminmax.first;
@@ -209,12 +209,12 @@ int CAENDT5748RawEvent2StdEventConverter::PolarityWF(const std::vector<double> &
 }
 
 
-double CAENDT5748RawEvent2StdEventConverter::AmplitudeWF(const std::vector<double>& waveform) const {
+float CAENDT5748RawEvent2StdEventConverter::AmplitudeWF(const std::vector<float>& waveform) const {
     // Rough estimation of the baseline using the median
     // But first use the right polarity to be sure we sort properly
     const int polarity = PolarityWF(waveform); 
-    std::vector<double> wf_abs(waveform);
-    for(double & v: wf_abs) {
+    std::vector<float> wf_abs(waveform);
+    for(float & v: wf_abs) {
         v * polarity;
     }
     // Sorted: smaller firts
@@ -323,7 +323,7 @@ std::cin.get();*/
         int pixid = 0;
         for(const auto & ch_colrowlist: _dut_channel_arrangement[dev_id][dutname_sensorid.second]) {
             const size_t n_block = ch_colrowlist.first;
-            std::vector<double> raw_data = uint8VectorToDoubleVector(event->GetBlock(n_block));
+            std::vector<float> raw_data = uint8VectorToFloatVector(event->GetBlock(n_block));
 
             // XXX -- Make this sense? Just to avoid crashing... [PROV]
             if(raw_data.size() == 0)
@@ -337,7 +337,7 @@ std::cin.get();*/
 
             // XXX -- Is this what we want? Or maybe extract the integral? 
             //        for sure we'd like to get the rise time as well?
-            double amplitude = AmplitudeWF(raw_data);
+            float amplitude = AmplitudeWF(raw_data);
             if(std::abs(amplitude) < 1e-9) {
                 // Supress the hit, no signal was found
                 continue;
