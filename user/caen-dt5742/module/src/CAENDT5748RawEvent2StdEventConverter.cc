@@ -217,6 +217,10 @@ float CAENDT5748RawEvent2StdEventConverter::AmplitudeWF(const std::vector<float>
     for(float & v: wf_abs) {
         v * polarity;
     }
+    //
+    // All signals are now positives
+    // -----------------------------
+
     // Sorted: smaller firts
     std::sort(wf_abs.begin(), wf_abs.end());
     const size_t wfsize = wf_abs.size();
@@ -242,8 +246,10 @@ float CAENDT5748RawEvent2StdEventConverter::AmplitudeWF(const std::vector<float>
     const double variance = std::accumulate(wf_abs.begin(), wf_abs.end(), 0.0, sum_term);
     const double stddev = std::sqrt(variance/wfsize);
     
+/*std::cout << " Baseline: " << baseline << " -- " << wf_amplitude_max 
+    << " 3sigma?" << 3.0*stddev << std::endl;*/
     // Assume 3 sigma to be signal
-    if( wf_amplitude_max > 3.0*stddev ) {
+    if( wf_amplitude_max > 3.0*(baseline + stddev) ) {
         return wf_amplitude_max*polarity;
     }
 
@@ -338,10 +344,9 @@ std::cin.get();*/
             // XXX -- Is this what we want? Or maybe extract the integral? 
             //        for sure we'd like to get the rise time as well?
             float amplitude = AmplitudeWF(raw_data);
-            if(std::abs(amplitude) < 1e-9) {
-                // Supress the hit, no signal was found
-                continue;
-            }
+/*std::cout << "DUT: " << dutname_sensorid.first << " Sensor: " << dutname_sensorid.second 
+    << " Amplitude: " << amplitude << std::endl; 
+std::cin.get();*/
 
             std::vector<double> wf(raw_data.begin(), raw_data.end());
             
