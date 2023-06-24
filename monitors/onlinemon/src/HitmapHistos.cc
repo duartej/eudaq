@@ -92,11 +92,14 @@ HitmapHistos::HitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
     sprintf(out, "%s %i TOT Single Pixels", _sensor.c_str(), _id);
     sprintf(out2, "h_totsingle_%s_%i", _sensor.c_str(), _id);
     if (p.is_USBPIXI4|| p.is_RD53A || p.is_RD53B || p.is_RD53BQUAD) {
-      _totSingle = new TH1I(out2, out, 16, 0, 15);
+      _totSingle = new TH1F(out2, out, 16, 0, 15);
     } else if (p.is_DEPFET) {
-      _totSingle = new TH1I(out2, out, 255, -127, 127);
+      _totSingle = new TH1F(out2, out, 255, -127, 127);
+    } else if( p.is_CAENDT5742) {
+        // HARDCODED
+        _totSingle = new TH1F(out2, out, 200, -0.4, 0);
     } else {
-      _totSingle = new TH1I(out2, out, 256, 0, 255);
+      _totSingle = new TH1F(out2, out, 256, 0, 255);
 #ifdef EUDAQ_LIB_ROOT6
       _totSingle->SetCanExtend(TH1::kAllAxes);
 #else

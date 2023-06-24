@@ -37,7 +37,7 @@ protected:
   TH1I *_lvl1Distr;
   TH1I *_lvl1Width;
   TH1I *_lvl1Cluster;
-  TH1I *_totSingle;
+  TH1F *_totSingle;
   TH1I *_totCluster;
   TH1F *_hitOcc;
   TH1I *_clusterSize;
@@ -75,7 +75,7 @@ public:
   TH1I *getLVL1Histo() { return _lvl1Distr; }
   TH1I *getLVL1WidthHisto() { return _lvl1Width; }
   TH1I *getLVL1ClusterHisto() { return _lvl1Cluster; }
-  TH1I *getTOTSingleHisto() { return _totSingle; }
+  TH1F *getTOTSingleHisto() { return _totSingle; }
   TH1I *getTOTClusterHisto() { return _totCluster; }
   TH1F *getHitOccHisto() {
     if (_wait)
