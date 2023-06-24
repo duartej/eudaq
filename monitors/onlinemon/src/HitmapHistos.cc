@@ -164,7 +164,7 @@ HitmapHistos::HitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
                 // XXX -- HARDCODED!!  I need to extract it from config
                 // Automatic binning:
                 //_waveforms[pixid] = new TH1F(out2, out, 1, 1,0); 
-                _waveforms[pixid] = new TH2F(out2, out, 1024, -0.5,1023.5, 5000, -0.045, 0.045); 
+                _waveforms[pixid] = new TH2F(out2, out, 1024, -0.5,1023.5, 500, -0.045, 0.045); 
                 _waveforms[pixid]->SetCanExtend(TH1::kAllAxes);
             }
         }
