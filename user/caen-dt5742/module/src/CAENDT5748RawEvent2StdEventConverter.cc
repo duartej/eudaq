@@ -353,6 +353,7 @@ std::cin.get();*/
             for(const auto & pixel: ch_colrowlist.second) {
                 // Note the signature introduce x,y -> col, row. Opposite to which we store
                 plane.SetPixel(pixid, pixel[1], pixel[0], amplitude);
+                plane.SetPixelAuxInfo(pixid, dutname_sensorid.first+":CH"+std::to_string(ch_colrowlist.first));
                 plane.SetWaveform(pixid, wf, _t0[dev_id], _dt[dev_id] );
                 ++pixid;
             }
