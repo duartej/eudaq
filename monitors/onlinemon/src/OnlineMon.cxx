@@ -63,6 +63,7 @@ RootMonitor::RootMonitor(const std::string & runcontrol,
   m_ev_rec_n = 0;
   
   hmCollection = new HitmapCollection();
+  thmCollection = new TimingHitmapCollection();
   corrCollection = new CorrelationCollection();
   MonitorPerformanceCollection *monCollection =new MonitorPerformanceCollection();
   eudaqCollection = new EUDAQMonitorCollection();
@@ -70,6 +71,7 @@ RootMonitor::RootMonitor(const std::string & runcontrol,
 
   // put collections into the vector
   _colls.push_back(hmCollection);
+  _colls.push_back(thmCollection);
   _colls.push_back(corrCollection);
   _colls.push_back(monCollection);
   _colls.push_back(eudaqCollection);
@@ -77,6 +79,7 @@ RootMonitor::RootMonitor(const std::string & runcontrol,
 
   // set the root Monitor
   hmCollection->setRootMonitor(this);
+  thmCollection->setRootMonitor(this);
   corrCollection->setRootMonitor(this);
   monCollection->setRootMonitor(this);
   eudaqCollection->setRootMonitor(this);
@@ -250,11 +253,16 @@ void RootMonitor::DoReceive(eudaq::EventSP evsp) {
             }
           }
           if( simpPlane.is_CAENDT5742) {
+              // Propagate to the monitor class plane
+              simpPlane.setPixelAuxInfo(index, plane.GetPixelAuxInfo(index));
+              simpPlane.definedAsTimingPlane();
               if( plane.HasWaveform(index) ) {
                   hit.setWaveform(plane.GetWaveform(index));
                   hit.setWaveformX0(plane.GetWaveformX0(index));
                   hit.setWaveformDX(plane.GetWaveformDX(index));
               }
+              // Overwrite previos setting (was integer, need analog estimation)
+              hit.setTOT(plane.GetPixel(index));
           }
 
           simpPlane.addHit(hit);
@@ -281,31 +289,31 @@ void RootMonitor::DoReceive(eudaq::EventSP evsp) {
   previous_event_analysis_time=my_event_processing_time.RealTime();
   //Filling
   my_event_processing_time.Start(true); //start the stopwatch again
-  for (unsigned int i = 0 ; i < _colls.size(); ++i)
-    {
-      if (_colls.at(i) == corrCollection)
-        {
+  for (unsigned int i = 0 ; i < _colls.size(); ++i) {
+      if (_colls.at(i) == corrCollection) {
           my_event_inner_operations_time.Start(true);
-          if (getUseTrack_corr() == true)
-            {
+          if (getUseTrack_corr() == true) {
               tracksPerEvent = corrCollection->FillWithTracks(simpEv);
-              if (eudaqCollection->getEUDAQMonitorHistos() != NULL) //workaround because Correlation Collection is before EUDAQ Mon collection
-                eudaqCollection->getEUDAQMonitorHistos()->Fill(simpEv.getEvent_number(), tracksPerEvent);
-            }
-          else
-            _colls.at(i)->Fill(simpEv);
+              //workaround because Correlation Collection is before EUDAQ Mon collection
+              if(eudaqCollection->getEUDAQMonitorHistos() != NULL) {
+                  eudaqCollection->getEUDAQMonitorHistos()->Fill(simpEv.getEvent_number(), tracksPerEvent);
+              }
+          } else {
+              _colls.at(i)->Fill(simpEv);
+          }
           my_event_inner_operations_time.Stop();
           previous_event_correlation_time = my_event_inner_operations_time.RealTime();
-        }
-      else
-        _colls.at(i)->Fill(simpEv);
+      } else {
+          _colls.at(i)->Fill(simpEv);
+      }
 
       // CollType is used to check which kind of Collection we are having
-      if (_colls.at(i)->getCollectionType()==HITMAP_COLLECTION_TYPE) // Calculate is only implemented for HitMapCollections
-        {
+      // Calculate is only implemented for HitMapCollections and Timing
+      if (_colls.at(i)->getCollectionType()==HITMAP_COLLECTION_TYPE || 
+              _colls.at(i)->getCollectionType() == TIMINGHITMAP_COLLECTION_TYPE) {
           _colls.at(i)->Calculate(stdev->GetEventNumber());
-        }
-    }
+      }
+  }
 
   onlinemon->setEventNumber(stdev->GetEventNumber());
   onlinemon->increaseAnalysedEventsCounter();

@@ -20,6 +20,7 @@
 #endif
 
 #include "HitmapCollection.hh"
+#include "TimingHitmapCollection.hh"
 #include "CorrelationCollection.hh"
 #include "MonitorPerformanceCollection.hh"
 #include "EUDAQMonitorCollection.hh"
@@ -76,6 +77,7 @@ private:
   bool _writeRoot;
   bool _planesInitialized;
   HitmapCollection *hmCollection;
+  TimingHitmapCollection *thmCollection;
   CorrelationCollection *corrCollection;
   EUDAQMonitorCollection *eudaqCollection;
   ParaMonitorCollection *paraCollection;

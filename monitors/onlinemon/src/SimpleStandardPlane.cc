@@ -13,7 +13,7 @@ SimpleStandardPlane::SimpleStandardPlane(const std::string &name, const int id,
                                          const int maxX, const int maxY,
                                          OnlineMonConfiguration *mymon)
     : _name(name), _id(id), _maxX(maxX), _maxY(maxY), _binsX(maxX),
-      _binsY(maxY) {
+      _binsY(maxY), _timingPlane(false) {
   const int hits_reserve = 500;
   _hits.reserve(hits_reserve);
   _badhits.reserve(hits_reserve); // allocate memory
@@ -47,7 +47,8 @@ SimpleStandardPlane::SimpleStandardPlane(const std::string &name, const int id,
 
 SimpleStandardPlane::SimpleStandardPlane(const std::string &name, const int id)
     : _name(name), _id(id), _maxX(-1),
-      _maxY(-1) // FIXME we actually only need this type of constructor to form
+      _maxY(-1), _timingPlane(false)
+      // FIXME we actually only need this type of constructor to form
                 // a map for histogramm allocation
 {
   _hits.reserve(400);
@@ -105,6 +106,19 @@ void SimpleStandardPlane::addRawHit(SimpleStandardHit oneHit) {
 void SimpleStandardPlane::reducePixels(const int reduceX, const int reduceY) {
   _binsX = reduceX;
   _binsY = reduceY;
+}
+
+std::pair<std::string, std::string> SimpleStandardPlane::getDutNameAndChannel(int index) const {
+    if( _auxinfo.size() == 0 ) {
+        return { "", "" };
+    }
+    const std::string token(":");
+    const std::string fullname = getPixelAuxInfo(index);
+    const size_t pos = fullname.find(token);
+    const std::string dutname = fullname.substr(0, pos);
+    const std::string channel = fullname.substr(pos + token.length());
+    
+    return { dutname, channel };
 }
 
 void SimpleStandardPlane::doClustering() {
