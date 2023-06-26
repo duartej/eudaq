@@ -142,7 +142,7 @@ void CAENDT5748RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, euda
     // Extract the initial (hardcoded to 0) and the temporal step value of the waveforms
     // --- in SECONDS
     _t0[device_id] = 0.0;
-    _dt[device_id] = (_sampling_frequency_MHz*1e6)/_n_samples_per_waveform;
+    _dt[device_id] = _n_samples_per_waveform/(_sampling_frequency_MHz);
 
     // Print-out the topology of the sensor and wire-bonding
     EUDAQ_INFO(" Defined DUTs in [" +_name[device_id]+ "] digitizer: ");
