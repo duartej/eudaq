@@ -17,27 +17,21 @@ bool TimingHitmapCollection::_IsPlaneRegistered(SimpleStandardPlane p) {
 }
 
 void TimingHitmapCollection::_FillHistograms(const SimpleStandardPlane &simpPlane) {
-std::cout << " --> Before re-gisterd " << std::endl;
     // Register the plane if needed
     if(!_IsPlaneRegistered(simpPlane)) {
-std::cout << " --> Inside " << std::endl;
         registerPlane(simpPlane);
         isOnePlaneRegistered = true;
     }
     
-std::cout << " --> After re-gisterd , define the histos" << std::endl;
     TimingHitmapHistos* timinghitmap = _map[simpPlane];
     // Not needed so far, maybe will need it at some point?
     // timinghitmap->Fill(simpPlane);
     
     ++counting;
     events += simpPlane.getNHits();
-std::cout << " --> Before Hits " << events << std::endl;
 
-std::cout << " --> Entrando en el loop " << events << std::endl;
     for(int hitpix = 0; hitpix < simpPlane.getNHits(); hitpix++) {
         const SimpleStandardHit &onehit = simpPlane.getHit(hitpix);
-std::cout << " --> Filling the hit " << events << std::endl;
         timinghitmap->Fill(onehit);
     }
 }
@@ -93,14 +87,11 @@ void TimingHitmapCollection::Reset() {
 }
 
 void TimingHitmapCollection::Fill(const SimpleStandardEvent &simpev) {
-std::cout << "Fill: Antes del loop" << std::endl;
     for(int plane = 0; plane < simpev.getNPlanes(); ++plane) {
         const SimpleStandardPlane &simpPlane = simpev.getPlane(plane);
         if(! simpPlane.isTimingPlane()) {
             continue;
         }
-
-std::cout << "Fill: Antes del _FillHistograms at plane-" << plane << " " << simpPlane.getName() << " " << simpPlane.getID() <<   std::endl;
         _FillHistograms(simpPlane);
     }
 }
@@ -112,27 +103,21 @@ TimingHitmapHistos* TimingHitmapCollection::getTimingHitmapHistos(const std::str
 
 
 void TimingHitmapCollection::registerPlane(const SimpleStandardPlane &p) {
-std::cout << " INSIDE REGISTER" << std::endl;
     // Create the histogram and associate to the container
     _map[p] = new TimingHitmapHistos(p, _mon);
-std::cout << " INSIDE REGISTER -1" << std::endl;
 
     if(_mon != nullptr) {
         if(_mon->getOnlineMon() == nullptr) {
             // don't have online mon
             return; 
         }
-std::cout << " INSIDE REGISTER -2" << std::endl;
+
+        const std::string sensor = p.getName();
         
-        // Extract the name of the DUT, it is passed in the plane name
-        // as DUTNAME:
-        std::map<std::string, bool> activate;
         const std::string token(":");
         for(unsigned int col = 0; col < p.getMaxX(); ++col) {
             for(unsigned int row = 0; row < p.getMaxY(); ++row) {
-std::cout << " INSIDE REGISTER -3 " << col << " " << row << std::endl;
                 const unsigned int pixid = col * p.getMaxY() + row;
-                /// FIXME: Use the GetDutAnd.. funciton
                 auto d_ch = p.getDutNameAndChannel(pixid);
                 const std::string dutname = d_ch.first;
                 const std::string channel = d_ch.second;
@@ -140,55 +125,37 @@ std::cout << " INSIDE REGISTER -3 " << col << " " << row << std::endl;
                     continue;
                 }
                 const std::string fullname = dutname+":"+channel;
-
-std::cout << " INSIDE REGISTER : " << fullname << std::endl;
-                // Just one per sensor
-                if(! activate[fullname]) {
-std::cout << " INSIDE REGISTER A: " << fullname << std::endl;
-                    std::string treename(p.getName()+"/"+dutname+"/Occupancy");
-std::cout << " INSIDE REGISTER B: " << fullname << std::endl;
-                    _mon->getOnlineMon()->registerTreeItem(treename);
-std::cout << " INSIDE REGISTER C: " << fullname << std::endl;
-                    _mon->getOnlineMon()->registerHisto(treename, 
-                            getTimingHitmapHistos(dutname)->GetOccupancymapHisto(), 
-                            "COLZ", 0);
-std::cout << " INSIDE REGISTER D: " << fullname << std::endl;
-                    _mon->getOnlineMon()->addTreeItemSummary(p.getName(), treename);
-
-std::cout << " INSIDE REGISTER F: " << fullname << std::endl;
-                    treename = p.getName()+"/"+dutname+"/Channels";
-std::cout << " INSIDE REGISTER G: " << fullname << std::endl;
-                    _mon->getOnlineMon()->registerTreeItem(treename);
-std::cout << " INSIDE REGISTER H: " << fullname << std::endl;
-                    _mon->getOnlineMon()->registerHisto(treename, 
-                            getTimingHitmapHistos(dutname)->GetChannelmapHisto(), 
-                            "TEXTCOLZ", 0);
-                    activate[fullname] = true;
-                }
-
-std::cout << " INSIDE REGISTER 2: " << fullname << std::endl;
+                
+                std::string treename(sensor+"/"+dutname+"/Occupancy");
+                _mon->getOnlineMon()->registerTreeItem(treename);
+                _mon->getOnlineMon()->registerHisto(treename, 
+                        getTimingHitmapHistos(sensor)->GetOccupancymapHisto(), 
+                        "COLZ", 0);
+                _mon->getOnlineMon()->addTreeItemSummary(sensor, treename);
+                
+                treename = sensor+"/"+dutname+"/Channels";
+                _mon->getOnlineMon()->registerTreeItem(treename);
+                _mon->getOnlineMon()->registerHisto(treename, 
+                        getTimingHitmapHistos(sensor)->GetChannelmapHisto(), 
+                        "TEXTCOLZ", 0);
 
                 // Amplitude and waveforms, one per channel/pixel
                 // FIXME -- OR channel?
-                std::string histoname = p.getName()+"/"+dutname+"/Waveforms/Pixel " + 
+                std::string histoname = sensor+"/"+dutname+"/Waveforms/Pixel " + 
                     std::to_string(col) + "," + std::to_string(row);
-std::cout << " INSIDE REGISTER 3: " << fullname << std::endl;
                 _mon->getOnlineMon()->registerTreeItem(histoname);
-std::cout << " INSIDE REGISTER 4: " << fullname << std::endl;
                 _mon->getOnlineMon()->registerHisto(histoname,
-                        getTimingHitmapHistos(dutname)->getWaveformHisto(pixid), 
+                        getTimingHitmapHistos(sensor)->getWaveformHisto(pixid), 
                         "COLZ", 0);
-std::cout << " INSIDE REGISTER 5: " << fullname << std::endl;
-                _mon->getOnlineMon()->makeTreeItemSummary(p.getName()+"/"+dutname+"/Waveforms");
-std::cout << " INSIDE REGISTER 3: " << fullname << std::endl;
+                _mon->getOnlineMon()->makeTreeItemSummary(sensor+"/"+dutname+"/Waveforms");
                 // And amplitude
                 // FIXME -- OR Channel?
-                histoname = p.getName()+"/"+dutname+"/Amplitude/Pixel " + 
+                histoname = sensor+"/"+dutname+"/Amplitude/Pixel " + 
                     std::to_string(col) + "," + std::to_string(row);
                 _mon->getOnlineMon()->registerTreeItem(histoname);
                 _mon->getOnlineMon()->registerHisto(histoname,
                         getTimingHitmapHistos(dutname)->GetAmplitudemapHisto(pixid));
-                _mon->getOnlineMon()->makeTreeItemSummary(p.getName()+"/"+dutname+"/Amplitudes");
+                _mon->getOnlineMon()->makeTreeItemSummary(sensor+"/"+dutname+"/Amplitudes");
             }
         }
     }
