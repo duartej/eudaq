@@ -28,6 +28,7 @@ namespace eudaq{
     ds.read(m_y);
     ds.read(m_pivot);
     ds.read(m_mat);
+    ds.read(m_auxinfo);
     ds.read(m_time);
   }
 
@@ -47,6 +48,7 @@ namespace eudaq{
     ser.write(m_y);
     ser.write(m_pivot);
     ser.write(m_mat);
+    ser.write(m_auxinfo);
     ser.write(m_time);
   }
 
@@ -78,6 +80,7 @@ namespace eudaq{
     m_waveform.resize(frames);
     m_waveform_x0.resize(frames);
     m_waveform_dx.resize(frames);
+    m_auxinfo.resize(frames);
     m_time.resize(GetFlags(FLAG_DIFFCOORDS) ? frames : 1);
     m_x.resize(GetFlags(FLAG_DIFFCOORDS) ? frames : 1);
     m_y.resize(GetFlags(FLAG_DIFFCOORDS) ? frames : 1);
@@ -93,6 +96,7 @@ namespace eudaq{
       m_waveform[i].resize(npix);
       m_waveform_x0[i].resize(npix);
       m_waveform_dx[i].resize(npix);
+      m_auxinfo[i].resize(npix);
       m_time[i].resize(npix);
       if (m_pivot.size()) {
         m_pivot[i].resize(npix);
@@ -110,12 +114,25 @@ namespace eudaq{
     m_waveform[frame].push_back(std::vector<double>());
     m_waveform_x0[frame].push_back(0);
     m_waveform_dx[frame].push_back(0);
+    m_auxinfo[frame].push_back("");
     m_time[frame].push_back(time_ps);
     if (m_pivot.size())
       m_pivot[frame].push_back(pivot);
     // std::cout << "DBG: " << frame << ", " << x << ", " << y << ", " << p <<
     // ";" << m_pix[0].size() << ", " << m_pivot.size() << std::endl;
   }
+
+  void StandardPlane::SetPixelAuxInfo(uint32_t index, std::string  aux_info, uint32_t frame) {
+    if(frame > m_x.size()) {
+      EUDAQ_THROW("Bad frame number " + to_string(frame) + " in SetPixelAuxInfo");
+    }
+
+    if(index >= m_auxinfo.at(frame).size()) {
+      EUDAQ_THROW("Bad pixel index " + to_string(frame) + " in SetPixelAuxInfo");
+    }
+    m_auxinfo.at(frame).at(index) = std::move(aux_info);
+  }
+
 
   void StandardPlane::SetWaveform(uint32_t index, std::vector<double> waveform, double x0, double dx, uint32_t frame) {
     if (frame > m_x.size()) {
@@ -156,12 +173,24 @@ namespace eudaq{
     if (frame < m_waveform_dx.size()) {
       m_waveform_dx.at(frame).at(index) = 0.;
     }
+    if( frame < m_auxinfo.size() ) {
+      m_auxinfo.at(frame).at(index) = "";
+    }
     if (frame < m_time.size()) {
       m_time.at(frame).at(index) = time_ps;
     }
   }
 
   void StandardPlane::SetFlags(StandardPlane::FLAGS flags) { m_flags |= flags; }
+
+  std::string StandardPlane::GetPixelAuxInfo(uint32_t index, uint32_t frame) const {
+      return m_auxinfo.at(frame).at(index);
+  }
+
+  std::string StandardPlane::GetPixelAuxInfo(uint32_t index) const {
+    SetupResult();
+    return m_result_auxinfo->at(index);
+  }
 
   bool StandardPlane::HasWaveform(uint32_t index, uint32_t frame) const {
     return !m_waveform.at(frame).at(index).empty();
@@ -323,6 +352,7 @@ namespace eudaq{
     m_result_waveform = &m_waveform[0];
     m_result_waveform_x0 = &m_waveform_x0[0];
     m_result_waveform_dx = &m_waveform_dx[0];
+    m_result_auxinfo = &m_auxinfo[0];
 
     if (GetFlags(FLAG_ACCUMULATE)) {
       m_temp_pix.resize(0);
@@ -332,6 +362,7 @@ namespace eudaq{
       m_temp_waveform.resize(0);
       m_temp_waveform_x0.resize(0);
       m_temp_waveform_dx.resize(0);
+      m_temp_auxinfo.resize(0);
       for (size_t f = 0; f < m_pix.size(); ++f) {
         for (size_t p = 0; p < m_pix[f].size(); ++p) {
           m_temp_x.push_back(GetX(p, f));
@@ -341,6 +372,7 @@ namespace eudaq{
           m_temp_waveform.push_back(GetWaveform(p, f));
           m_temp_waveform_x0.push_back(GetWaveformX0(p, f));
           m_temp_waveform_dx.push_back(GetWaveformDX(p,f));
+          m_temp_auxinfo.push_back(GetPixelAuxInfo(p,f));
         }
       }
       m_result_x = &m_temp_x;
@@ -350,6 +382,7 @@ namespace eudaq{
       m_result_waveform = &m_temp_waveform;
       m_result_waveform_x0 = &m_temp_waveform_x0;
       m_result_waveform_dx = &m_temp_waveform_dx;
+      m_result_auxinfo = &m_temp_auxinfo;
     } else if (m_pix.size() == 1 && !GetFlags(FLAG_NEEDCDS)) {
       m_result_pix = &m_pix[0];
     } else if (m_pix.size() == 2) {
@@ -368,6 +401,7 @@ namespace eudaq{
           m_temp_waveform = m_waveform[0];
           m_temp_waveform_x0 = m_waveform_x0[0];
           m_temp_waveform_dx = m_waveform_dx[0];
+          m_temp_auxinfo = m_auxinfo[0];
         } else {
           m_temp_x.resize(0);
           m_temp_y.resize(0);
@@ -376,6 +410,7 @@ namespace eudaq{
           m_temp_waveform.resize(0);
           m_temp_waveform_x0.resize(0);
           m_temp_waveform_dx.resize(0);
+          m_temp_auxinfo.resize(0);
           const bool inverse = false;
           size_t i;
           for (i = 0; i < m_pix[1 - inverse].size(); ++i) {
@@ -388,6 +423,7 @@ namespace eudaq{
             m_temp_waveform.push_back(GetWaveform(i, 1-inverse));
             m_temp_waveform_x0.push_back(GetWaveformX0(i, 1-inverse));
             m_temp_waveform_dx.push_back(GetWaveformDX(i, 1-inverse));
+            m_temp_auxinfo.push_back(GetPixelAuxInfo(i, 1-inverse));
           }
           for (i = 0; i < m_pix[0 + inverse].size(); ++i) {
             if (m_pivot[0 + inverse][i])
@@ -401,6 +437,7 @@ namespace eudaq{
             m_temp_waveform.push_back(GetWaveform(i, 0 + inverse));
             m_temp_waveform_x0.push_back(GetWaveformX0(i, 0 + inverse));
             m_temp_waveform_dx.push_back(GetWaveformDX(i, 0 + inverse));
+            m_temp_auxinfo.push_back(GetPixelAuxInfo(i, 0 + inverse));
           }
           m_result_x = &m_temp_x;
           m_result_y = &m_temp_y;
@@ -410,6 +447,7 @@ namespace eudaq{
         m_result_waveform = &m_temp_waveform;
         m_result_waveform_x0 = &m_temp_waveform_x0;
         m_result_waveform_dx = &m_temp_waveform_dx;
+        m_result_auxinfo = &m_temp_auxinfo;
       }
     } else if (m_pix.size() == 3 && GetFlags(FLAG_NEEDCDS)) {
       m_temp_pix.resize(m_pix[0].size());
