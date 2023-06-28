@@ -90,13 +90,20 @@ class CAENDT5742Events
     public: 
         void initialize(const std::shared_ptr<const eudaq::Event> & bore);
         const std::map<std::string,int>& get_dutnames_and_id(int device_id) const { return _dut_names_id.at(device_id); }
-        // Get the channel list corresponding to the dut acquiered with the caen_board :: XXX
+        // Get the channel list corresponding to the dut acquiered with the caen_board
+        // In the proper order it was stored (blocks)
         std::vector<int> get_channel_list(int caen_board, const std::string & dutname);
         // Get the channel list in the order was stored
+        // Get list of rows and columns for a given channel:
+        std::vector<std::array<int,2>> get_rows_and_columns_list(int caen_board, int dut_id, int channel_id) const 
+        { 
+            return _dut_channel_arrangement.at(caen_board).at(dut_id).at(channel_id) ; 
+        }
         // getters
         size_t get_samples_per_waveform() { return _n_samples_per_waveform; }
         size_t get_sampling_frequency_MHz() { return _sampling_frequency_MHz; }
         // 
+        std::string get_producer_name(int device_id) const { return _name.at(device_id); }
 
     private:
         // Helper functions
@@ -285,10 +292,12 @@ int main(int /*argc*/, const char **argv)
 
     // Variable definition for the tree filling
     int event_number = -1;
+    std::string current_producer;
     std::vector<std::vector<Double_t>>* volt; 
     
     // Branches creation
     wf_tree->Branch("event", &event_number);
+    wf_tree->Branch("producer", &current_producer);
     wf_tree->Branch("voltages", &volt);
     
     // Header tree with topology info
@@ -364,9 +373,14 @@ int main(int /*argc*/, const char **argv)
                 {
                     dutnames->push_back(dutname_id.first);
                     channels->push_back( {} );
-                    for(const auto & ch_name: caen.get_channel_list(device_id, dutname_id.first))
+                    // At a given caen, the block-id, and therefore the order we need to
+                    // propagate here, is given by the 
+                    // _dut_channel_arrangement[dev_id][dutname_sensorid.second]
+                    // where ` dutname_sensorid.second is given by _dut_names_id[dev_id]
+                    // The order of the sensor, i.e. of the plane
+                    for(const auto & chid: caen.get_channel_list(device_id, dutname_id.first))
                     {
-                        (channels->rbegin())->push_back( ch_name );
+                        (channels->rbegin())->push_back( chid );
                     }
                 }
                 header_tree->Fill();
@@ -383,6 +397,7 @@ int main(int /*argc*/, const char **argv)
                 }
             }
 
+            current_producer = caen.get_producer_name(device_id);
             // Extract the relevant things.. so waveforms
             auto evstd = eudaq::StandardEvent::MakeShared();
             eudaq::StdEventConverter::Convert(subevt, evstd, config_spc);
@@ -390,26 +405,25 @@ int main(int /*argc*/, const char **argv)
             // Vector init
             volt = new std::vector<std::vector<Double_t>>;
             // They should (MUST!!) be in the same order than established in (*)
-            // FIXME --- THIS MUST BE CROSS-CHECHKED and implement a mechanism to be sure about it
-            for(size_t plid=0; plid < evstd->NumPlanes(); ++plid)
+            // The Plane number (sensor ID in the monitor) is defined at the 
+            // converter, so following the exact loop
+            for(const auto & dutname_sensorid: caen.get_dutnames_and_id(device_id))
             {
-                auto dut_plane = evstd->GetPlane(plid);
-                for(size_t chid = 0 ; chid < dut_plane.TotalPixels(); ++chid)
+                auto dut_plane = evstd->GetPlane(dutname_sensorid.second);
+                int pixid = 0;
+                // The pixel number is given in the producer by following the Channel-ID provided
+                // in the configuration file (so extracted in the `initialize` method)
+                for(const auto & chid: caen.get_channel_list(device_id, dutname_sensorid.first))
                 {
-                    volt->push_back( dut_plane.GetWaveform(chid) );
+                    if( caen.get_rows_and_columns_list(device_id,dutname_sensorid.second,chid).size() > 1 )
+                    {
+                        std::cerr << "Unable to deal with more than one pixel per channel... " << std::endl;
+                        return -1;
+                    }
+                    volt->push_back( dut_plane.GetWaveform(pixid) );
+                    ++pixid;
                 }
             }
-
-            // Go trhough all channels
-            /*for(const auto & dutname_id: caen.get_dutnames_and_id(device_id))
-            {
-                // Through all pixels with no empty waveform
-                for(const auto & ch_name: caen.get_channel_list(device_id, dutname_id.first))
-                {
-                    (channels->rbegin())->push_back( ch_name );
-                } 
-            }*/
-                
             wf_tree->Fill();
             delete volt;
         }
