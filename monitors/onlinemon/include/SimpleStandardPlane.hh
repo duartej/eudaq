@@ -70,10 +70,10 @@ public:
   SimpleStandardHit getRawHit(const int i) const { return _rawhits.at(i); }
   std::string getName() const { return _name; }
   int getID() const { return _id; }
-  int getMaxX() { return _maxX; }
-  int getMaxY() { return _maxY; }
-  int getBinsX() { return _binsX; }
-  int getBinsY() { return _binsY; }
+  int getMaxX() const { return _maxX; }
+  int getMaxY() const { return _maxY; }
+  int getBinsX() const { return _binsX; }
+  int getBinsY() const{ return _binsY; }
   void addSuffix(const std::string &suf) { _name = _name + suf; }
   void reducePixels(const int reduceX, const int reduceY);
   void setMonitorConfiguration(OnlineMonConfiguration *mymon) { mon = mymon; }
@@ -91,6 +91,10 @@ public:
   bool is_EXPLORER;
   bool is_APTS;
   bool is_OPAMP;
+  bool is_RD53A;
+  bool is_RD53B;
+  bool is_RD53BQUAD;
+  bool is_CAENDT5742;
   bool is_UNKNOWN;
 
 private:

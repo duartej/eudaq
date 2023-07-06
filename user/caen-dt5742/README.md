@@ -17,6 +17,8 @@ See also the example in [misc/CAENDT5742_example.ini](misc/CAENDT5742_example.in
 
 For the most up to date documentation about these parameters, look for the `CONFIGURE_PARAMS` dictionary in the file [CAENDT5742Producer.py](python/CAENDT5742Producer.py). It is self explanatory.
 
+- `channels_mapping_file`: Path to a file, mandatory
+	- Path to a CSV file following the format of [the example](misc/CAEN_connections_example.csv) that specifies which pixel from which DUT is connected to each channel in the CAEN.
 - `sampling_frequency_MHz`: `int`, default `5000`
 - `max_num_events_BLT`: `int`, default `1`
   - Number of events to be transferred from the digitizer to the computer on each data transfer. For more info look for *MaxNumEventsBLT* in the [CAENDigitizer library](https://www.caen.it/products/caendigitizer-library/).

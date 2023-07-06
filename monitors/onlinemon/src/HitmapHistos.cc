@@ -4,7 +4,6 @@
  *  Created on: Jun 16, 2011
  *      Author: stanitz
  */
-
 #include "HitmapHistos.hh"
 #include "OnlineMon.hh"
 #include <cstdlib>
@@ -17,7 +16,8 @@ HitmapHistos::HitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
       _nClusters(NULL), _nHits(NULL), _clusterXWidth(NULL),
       _clusterYWidth(NULL), _nbadHits(NULL), _nHotPixels(NULL),
       _hitmapSections(NULL), is_MIMOSA26(false), is_APIX(false),
-      is_USBPIX(false), is_USBPIXI4(false) {
+      is_USBPIX(false), is_USBPIXI4(false), is_RD53A(false), is_RD53B(false), is_RD53BQUAD(false),
+      is_CAENDT5742(false) {
   char out[1024], out2[1024];
 
   _mon = mon;
@@ -26,6 +26,14 @@ HitmapHistos::HitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
     is_MIMOSA26 = true;
   } else if (_sensor == std::string("APIX")) {
     is_APIX = true;
+  } else if (_sensor == std::string("RD53A")) {
+    is_RD53A = true;
+  } else if (_sensor == std::string("RD53B")) {
+    is_RD53B = true;
+  } else if (_sensor == std::string("RD53BQUAD")) {
+    is_RD53BQUAD = true;
+  } else if (_sensor.find("CAEN") != std::string::npos) {
+    is_CAENDT5742 = true;
   } else if ((_sensor == std::string("USBPIX")) || (_sensor.find("USBPIXI-") != std::string::npos)) {
     is_USBPIX = true;
   } else if ((_sensor == std::string("USBPIXI4")) || (_sensor.find("USBPIXI4-") == std::string::npos)) {
@@ -65,19 +73,25 @@ HitmapHistos::HitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
 
     sprintf(out, "%s %i LVL1 Pixel Distribution", _sensor.c_str(), _id);
     sprintf(out2, "h_lvl1_%s_%i", _sensor.c_str(), _id);
-    _lvl1Distr = new TH1I(out2, out, 16, 0, 16);
+    unsigned int lvl1_bin = 16;
+    if(p.is_RD53A || p.is_RD53B || p.is_RD53BQUAD) 
+    {
+       lvl1_bin = 32;
+     }
+    _lvl1Distr = new TH1I(out2, out, lvl1_bin, 0, lvl1_bin);
+    SetHistoAxisLabelx(_lvl1Distr, "Lvl1 [25 ns]");
 
     sprintf(out, "%s %i LVL1 Cluster Distribution", _sensor.c_str(), _id);
     sprintf(out2, "h_lvl1cluster_%s_%i", _sensor.c_str(), _id);
-    _lvl1Cluster = new TH1I(out2, out, 16, 0, 16);
+    _lvl1Cluster = new TH1I(out2, out, lvl1_bin, 0, lvl1_bin);
 
     sprintf(out, "%s %i LVL1 Clusterwidth", _sensor.c_str(), _id);
     sprintf(out2, "h_lvl1width_%s_%i", _sensor.c_str(), _id);
-    _lvl1Width = new TH1I(out2, out, 16, 0, 16);
+    _lvl1Width = new TH1I(out2, out, lvl1_bin, 0, lvl1_bin);
 
     sprintf(out, "%s %i TOT Single Pixels", _sensor.c_str(), _id);
     sprintf(out2, "h_totsingle_%s_%i", _sensor.c_str(), _id);
-    if (p.is_USBPIXI4) {
+    if (p.is_USBPIXI4|| p.is_RD53A || p.is_RD53B || p.is_RD53BQUAD) {
       _totSingle = new TH1I(out2, out, 16, 0, 15);
     } else if (p.is_DEPFET) {
       _totSingle = new TH1I(out2, out, 255, -127, 127);
@@ -92,7 +106,7 @@ HitmapHistos::HitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
 
     sprintf(out, "%s %i TOT Clusters", _sensor.c_str(), _id);
     sprintf(out2, "h_totcluster_%s_%i", _sensor.c_str(), _id);
-    if (p.is_USBPIXI4)
+    if (p.is_USBPIXI4|| p.is_RD53A || p.is_RD53B || p.is_RD53BQUAD)
       _totCluster = new TH1I(out2, out, 80, 0, 79);
     else
       _totCluster = new TH1I(out2, out, 256, 0, 255);
@@ -139,6 +153,22 @@ HitmapHistos::HitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
     sprintf(out, "%s %i Hitmap Sections", _sensor.c_str(), _id);
     sprintf(out2, "h_hitmapSections_%s_%i", _sensor.c_str(), _id);
     _hitmapSections = new TH1I(out2, out, mimosa26_max_section, _id, _id + 1);
+    
+    //  Timing -- Only for CAEN
+    if( is_CAENDT5742 ) {
+        for(unsigned int col = 0; col < _maxX; ++col) {
+            for(unsigned int row = 0; row < _maxY; ++row) {
+                const unsigned int pixid = col * _maxY + row;
+                sprintf(out, "%s %i Waveform %i (Col:%i,Row:%i)", _sensor.c_str(), _id, pixid,col,row);
+                sprintf(out2, "h_waveform_%s_%i_%i", _sensor.c_str(), _id, pixid);
+                // XXX -- HARDCODED!!  I need to extract it from config
+                // Automatic binning:
+                //_waveforms[pixid] = new TH1F(out2, out, 1, 1,0); 
+                _waveforms[pixid] = new TH2F(out2, out, 1024, -0.5,1023.5, 500, -0.045, 0.045); 
+                _waveforms[pixid]->SetCanExtend(TH1::kAllAxes);
+            }
+        }
+    }
 
     for (unsigned int section = 0; section < mimosa26_max_section; section++) {
       sprintf(out, "%i%c", _id, (section + 65));
@@ -226,6 +256,9 @@ int HitmapHistos::zero_plane_array() {
   return 0;
 }
 
+// Use it to dump just a few wf (every 1000)
+static int FILLED_WF = 0;
+
 void HitmapHistos::Fill(const SimpleStandardHit &hit) {
   int pixel_x = hit.getX();
   int pixel_y = hit.getY();
@@ -257,12 +290,27 @@ void HitmapHistos::Fill(const SimpleStandardHit &hit) {
   if ((pixel_x < _maxX) && (pixel_y < _maxY)) {
     plane_map_array[pixel_x][pixel_y] = plane_map_array[pixel_x][pixel_y] + 1;
   }
-  if ((is_APIX) || (is_USBPIX) || (is_USBPIXI4) || (is_DEPFET)) {
+  if ((is_APIX) || (is_USBPIX) || (is_USBPIXI4) || (is_DEPFET)|| is_RD53A || is_RD53B || is_RD53BQUAD) {
     if (_totSingle != NULL)
       _totSingle->Fill(hit.getTOT());
     if (_lvl1Distr != NULL)
       _lvl1Distr->Fill(hit.getLVL1());
   }
+
+  // FIXME -- Not always, one each 1000 or so?
+  if( is_CAENDT5742 ) { //&& (FILLED_WF % 500) == 0 ) {
+      const std::vector<double> wf = hit.getWaveform();
+      const float dt = hit.getWaveformDX();
+      std::vector<double> t;
+      std::vector<double> _s;
+      for(size_t _k = hit.getWaveformX0(); _k < wf.size(); ++_k) {
+          t.push_back( _k*dt );
+          _s.push_back(_k);
+      }
+      const unsigned int pixid = pixel_x * _maxY + pixel_y;
+      _waveforms[pixid]->FillN(wf.size(), &_s[0], &(hit.getWaveform()[0]), nullptr, 1);
+  }
+  ++FILLED_WF;
 }
 
 void HitmapHistos::Fill(const SimpleStandardPlane &plane) {
@@ -313,7 +361,7 @@ void HitmapHistos::Fill(const SimpleStandardCluster &cluster) {
     }
   }
 
-  if ((is_APIX) || (is_USBPIX) || (is_USBPIXI4)) {
+  if ((is_APIX) || (is_USBPIX) || (is_USBPIXI4)|| is_RD53A || is_RD53B || is_RD53BQUAD) {
     if (_lvl1Width != NULL)
       _lvl1Width->Fill(cluster.getLVL1Width());
     if (_totCluster != NULL)
@@ -432,6 +480,7 @@ void HitmapHistos::Write() {
   _clusterXWidth->Write();
   _clusterYWidth->Write();
   _hitmapSections->Write();
+  // FIXME --- Missing the Waveforms writing
   for (unsigned int section = 0; section < mimosa26_max_section; section++) {
     _nClusters_section[section]->Write();
     _nHits_section[section]->Write();

@@ -224,7 +224,7 @@ void RootMonitor::DoReceive(eudaq::EventSP evsp) {
         SimpleStandardHit hit((int)plane.GetX(index,lvl1),(int)plane.GetY(index,lvl1));
         hit.setTOT((int)plane.GetPixel(index,lvl1)); //this stores the analog information if existent, else it stores 1
         hit.setLVL1(lvl1);
-          
+
         if (simpPlane.getAnalogPixelType()){ //this is analog pixel, apply threshold
           //this should be moved into converter
           if (simpPlane.is_DEPFET){
@@ -249,6 +249,14 @@ void RootMonitor::DoReceive(eudaq::EventSP evsp) {
               continue;
             }
           }
+          if( simpPlane.is_CAENDT5742) {
+              if( plane.HasWaveform(index) ) {
+                  hit.setWaveform(plane.GetWaveform(index));
+                  hit.setWaveformX0(plane.GetWaveformX0(index));
+                  hit.setWaveformDX(plane.GetWaveformDX(index));
+              }
+          }
+
           simpPlane.addHit(hit);
         }
         else{ //purely digital pixel

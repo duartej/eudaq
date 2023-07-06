@@ -71,6 +71,11 @@ namespace eudaq {
     double GetY(uint32_t index, uint32_t frame) const;
     double GetY(uint32_t index) const;
 
+    // Auxiliary generic info, to be defined and used by the user
+    void SetPixelAuxInfo(uint32_t index, std::string aux_info, uint32_t frame = 0);
+    std::string GetPixelAuxInfo(uint32_t index, uint32_t frame) const;
+    std::string GetPixelAuxInfo(uint32_t index) const;
+
     void SetWaveform(uint32_t index, std::vector<double> waveform, double x0, double dx, uint32_t frame = 0);
     bool HasWaveform(uint32_t index, uint32_t frame) const;
     bool HasWaveform(uint32_t index) const;
@@ -146,6 +151,7 @@ namespace eudaq {
     std::vector<std::vector<std::vector<double>>> m_waveform;
     std::vector<std::vector<double>> m_waveform_x0;
     std::vector<std::vector<double>> m_waveform_dx;
+    std::vector<std::vector<std::string> > m_auxinfo;
     std::vector<std::vector<coord_t>> m_x, m_y;
     std::vector<std::vector<uint64_t>> m_time;
     std::vector<std::vector<bool>> m_pivot;
@@ -157,6 +163,7 @@ namespace eudaq {
     mutable const std::vector<std::vector<double>> *m_result_waveform;
     mutable const std::vector<double> *m_result_waveform_x0;
     mutable const std::vector<double> *m_result_waveform_dx;
+    mutable const std::vector<std::string> * m_result_auxinfo;
 
     mutable std::vector<pixel_t> m_temp_pix;
     mutable std::vector<coord_t> m_temp_x, m_temp_y;
@@ -164,6 +171,7 @@ namespace eudaq {
     mutable std::vector<std::vector<double>> m_temp_waveform;
     mutable std::vector<double> m_temp_waveform_x0;
     mutable std::vector<double> m_temp_waveform_dx;
+    mutable std::vector<std::string> m_temp_auxinfo;
   };
 
 } // namespace eudaq
