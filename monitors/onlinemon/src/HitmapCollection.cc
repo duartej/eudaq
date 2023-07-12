@@ -100,6 +100,11 @@ void HitmapCollection::Fill(const SimpleStandardEvent &simpev) {
 
   for (int plane = 0; plane < simpev.getNPlanes(); plane++) {
     const SimpleStandardPlane &simpPlane = simpev.getPlane(plane);
+    // Not fill Hit map histograms in case of a timing plane
+    // Use their proper histo collection
+    if(simpPlane.isTimingPlane()) {
+        continue;
+    }
     fillHistograms(simpPlane);
   }
 }
