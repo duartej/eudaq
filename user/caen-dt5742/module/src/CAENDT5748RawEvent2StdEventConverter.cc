@@ -327,10 +327,10 @@ std::cin.get();*/
         
         // Each channel is stored in a block
         int pixid = 0;
-        for(const auto & ch_colrowlist: _dut_channel_arrangement[dev_id][dutname_sensorid.second]) {
-            const size_t n_block = ch_colrowlist.first;
+        for(const auto & ch_rowcollist: _dut_channel_arrangement[dev_id][dutname_sensorid.second]) {
+            const size_t n_block = ch_rowcollist.first;
             std::vector<float> raw_data = uint8VectorToFloatVector(event->GetBlock(n_block));
-
+            
             // XXX -- Make this sense? Just to avoid crashing... [PROV]
             if(raw_data.size() == 0)
             {
@@ -344,20 +344,27 @@ std::cin.get();*/
             // XXX -- Is this what we want? Or maybe extract the integral? 
             //        for sure we'd like to get the rise time as well?
             float amplitude = AmplitudeWF(raw_data);
-/*std::cout << "DUT: " << dutname_sensorid.first << " Sensor: " << dutname_sensorid.second 
-    << " Amplitude: " << amplitude << std::endl; 
-std::cin.get();*/
 
             std::vector<double> wf(raw_data.begin(), raw_data.end());
             
-            for(const auto & pixel: ch_colrowlist.second) {
+/*if(producer_name == "CAEN_IJS")
+{
+std::cout << "DUT: " << dutname_sensorid.first << " Sensor: " << dutname_sensorid.second  << " PIXID: " << pixid << std::endl;
+ }*/
+            for(const auto & pixel: ch_rowcollist.second) {
+/*if(producer_name == "CAEN_IJS")
+{
+std::cout << "Block id: " << ch_rowcollist.first << " pixel: col-" << pixel[1] << " ,row-" << pixel[0]
+    << " A=" << amplitude << std::endl ;
+std::cin.get();
+}*/
                 // Note the signature introduce x,y -> col, row. Opposite to which we store
                 plane.SetPixel(pixid, pixel[1], pixel[0], amplitude);
-                plane.SetPixelAuxInfo(pixid, dutname_sensorid.first+":CH"+std::to_string(ch_colrowlist.first));
+                plane.SetPixelAuxInfo(pixid, dutname_sensorid.first+":CH"+std::to_string(ch_rowcollist.first));
                 plane.SetWaveform(pixid, wf, _t0[dev_id], _dt[dev_id] );
                 ++pixid;
             }
-/*std::cout << " The Raw data for CH-" << ch_colrowlist.first << ": [size: " << raw_data.size() << "]: " ;
+/*std::cout << " The Raw data for CH-" << ch_rowcollist.first << ": [size: " << raw_data.size() << "]: " ;
 for(const auto & dt: raw_data)
 {
     std::cout << " " << dt ;
