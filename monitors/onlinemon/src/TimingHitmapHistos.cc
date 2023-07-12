@@ -34,7 +34,6 @@ TimingHitmapHistos::TimingHitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
     if(_maxX != -1 && _maxY != -1) {
         _occupancy_map = new TH2I(hname.c_str(), title.c_str(), _maxX, 0, _maxX, _maxY, 0, _maxY);
 std::cout << " -->> " << _occupancy_map << std::endl;
-std::cin.get();
         _SetHistoAxisLabels(_occupancy_map, "X", "Y");
         
         title = _boardname+" "+_dutname+" Channel Map";
@@ -78,6 +77,7 @@ std::cerr << "BOARD: [" << _boardname << "] [" << _dutname << "]" << " CH:[" << 
                 // The Channel map, a static map, we can fill it up now
                 _channel_map->SetBinContent(col,row,channel);
 
+    std::cout << "WHAT THE FIUCKE!! Afterwards " << channel << std::endl;
             }
         }
     } else {
@@ -90,12 +90,22 @@ std::cerr << "BOARD: [" << _boardname << "] [" << _dutname << "]" << " CH:[" << 
 static int FILLED_WF = 0;
 
 void TimingHitmapHistos::Fill(const SimpleStandardHit &hit) {
+    // Be sure it is not a fake pixel (just to fill up the board)
+std::cout << "ANTES " << std::endl;
     int pixel_x = hit.getX();
     int pixel_y = hit.getY();
+    
+    const unsigned int pixid = pixel_x * _maxY + pixel_y;
+    if( _waveforms.find(pixid) == _waveforms.end() )
+    {
+        return;
+    }
  
-    if(_occupancy_map != NULL && std::abs(hit.getTOT()) > 0.0) {
+std::cout << "ANTES-1 " << std::endl;
+    if(_occupancy_map != nullptr && std::abs(hit.getTOT()) > 0.0) {
         _occupancy_map->Fill(pixel_x, pixel_y);
     }
+std::cout << "DESTPUE-21 " << std::endl;
 
 
   // FIXME -- Not always, one each 1000 or so?
@@ -108,8 +118,11 @@ void TimingHitmapHistos::Fill(const SimpleStandardHit &hit) {
         t.push_back( _k*dt );
         _s.push_back(_k);
     }
-    const unsigned int pixid = pixel_x * _maxY + pixel_y;
+std::cout << "HOLA -098" << std::endl;
+std::cout << "HOLA QUIEN? ["<< pixid << "]: " ;
+for(const auto & _ll: _waveforms){ std::cout << _ll.first << " ";} std::cout <<std::endl;
     _waveforms[pixid]->FillN(wf.size(), &_s[0], &(hit.getWaveform()[0]), nullptr, 1);
+std::cout << "HOLA -23 " << std::endl;
     ++FILLED_WF;
 }
 

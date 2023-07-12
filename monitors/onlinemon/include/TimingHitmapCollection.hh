@@ -39,7 +39,7 @@ class TimingHitmapCollection : public BaseCollection {
         void setRootMonitor(RootMonitor *mon) { _mon = mon; }
         void registerPlane(const SimpleStandardPlane &p);
         void bookHistograms(const SimpleStandardEvent &simpev);
-        TimingHitmapHistos* getTimingHitmapHistos(const std::string & dut);
+        TimingHitmapHistos* getTimingHitmapHistos(const std::string & dut, int id);
         void Fill(const SimpleStandardEvent &simpev) override;
         void Reset() override;
         virtual void Write(TFile *file) override;

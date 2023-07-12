@@ -22,7 +22,7 @@ void TimingHitmapCollection::_FillHistograms(const SimpleStandardPlane &simpPlan
         registerPlane(simpPlane);
         isOnePlaneRegistered = true;
     }
-    
+std::cout << " _FillHistograms: " << simpPlane.getName() << " " << simpPlane.getID()  << std::endl; 
     TimingHitmapHistos* timinghitmap = _map[simpPlane];
     // Not needed so far, maybe will need it at some point?
     // timinghitmap->Fill(simpPlane);
@@ -92,12 +92,15 @@ void TimingHitmapCollection::Fill(const SimpleStandardEvent &simpev) {
         if(! simpPlane.isTimingPlane()) {
             continue;
         }
+std::cout << "FILL [  " << simpPlane.getName() << " " << simpPlane.getID() << " ] " << std::endl;
+std::cin.get();
         _FillHistograms(simpPlane);
     }
 }
 
-TimingHitmapHistos* TimingHitmapCollection::getTimingHitmapHistos(const std::string & sensor) {
-    SimpleStandardPlane sp(sensor, 0);  
+TimingHitmapHistos* TimingHitmapCollection::getTimingHitmapHistos(const std::string & sensor, int id) {
+    SimpleStandardPlane sp(sensor, id);  
+std::cout << "getTImingHitMaspHistos--> Plane: " << sp.getName() << " " << sp.getID()  << std::endl;
     return _map[sp];
 }
 
@@ -105,6 +108,7 @@ TimingHitmapHistos* TimingHitmapCollection::getTimingHitmapHistos(const std::str
 void TimingHitmapCollection::registerPlane(const SimpleStandardPlane &p) {
     // Create the histogram and associate to the container
     _map[p] = new TimingHitmapHistos(p, _mon);
+std::cout << "registerPlane --> Plane: " << p.getName() << " " << p.getID()  << std::endl;
 
     if(_mon != nullptr) {
         if(_mon->getOnlineMon() == nullptr) {
@@ -125,18 +129,18 @@ void TimingHitmapCollection::registerPlane(const SimpleStandardPlane &p) {
                     continue;
                 }
                 const std::string fullname = dutname+":"+channel;
-                
+std::cout << "---> " <<  fullname << " in RegisterPlane" << " pixeid:" << pixid << std::endl;
                 std::string treename(sensor+"/"+dutname+"/Occupancy");
                 _mon->getOnlineMon()->registerTreeItem(treename);
                 _mon->getOnlineMon()->registerHisto(treename, 
-                        getTimingHitmapHistos(sensor)->GetOccupancymapHisto(), 
+                        getTimingHitmapHistos(sensor,pixid)->GetOccupancymapHisto(), 
                         "COLZ", 0);
                 _mon->getOnlineMon()->addTreeItemSummary(sensor, treename);
                 
                 treename = sensor+"/"+dutname+"/Channels";
                 _mon->getOnlineMon()->registerTreeItem(treename);
                 _mon->getOnlineMon()->registerHisto(treename, 
-                        getTimingHitmapHistos(sensor)->GetChannelmapHisto(), 
+                        getTimingHitmapHistos(sensor,pixid)->GetChannelmapHisto(), 
                         "TEXTCOLZ", 0);
 
                 // Amplitude and waveforms, one per channel/pixel
@@ -145,7 +149,7 @@ void TimingHitmapCollection::registerPlane(const SimpleStandardPlane &p) {
                     std::to_string(col) + "," + std::to_string(row);
                 _mon->getOnlineMon()->registerTreeItem(histoname);
                 _mon->getOnlineMon()->registerHisto(histoname,
-                        getTimingHitmapHistos(sensor)->getWaveformHisto(pixid), 
+                        getTimingHitmapHistos(sensor,pixid)->getWaveformHisto(pixid), 
                         "COLZ", 0);
                 _mon->getOnlineMon()->makeTreeItemSummary(sensor+"/"+dutname+"/Waveforms");
                 // And amplitude
@@ -154,9 +158,10 @@ void TimingHitmapCollection::registerPlane(const SimpleStandardPlane &p) {
                     std::to_string(col) + "," + std::to_string(row);
                 _mon->getOnlineMon()->registerTreeItem(histoname);
                 _mon->getOnlineMon()->registerHisto(histoname,
-                        getTimingHitmapHistos(dutname)->GetAmplitudemapHisto(pixid));
+                        getTimingHitmapHistos(sensor,pixid)->GetAmplitudemapHisto(pixid));
                 _mon->getOnlineMon()->makeTreeItemSummary(sensor+"/"+dutname+"/Amplitudes");
             }
         }
     }
+std::cout << "DDONE ===== " << std::endl;
 }

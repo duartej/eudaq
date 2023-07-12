@@ -47,7 +47,7 @@ class TimingHitmapHistos {
         void Calculate(const int currentEventNum);
         void Write();
 
-        TH2I* GetOccupancymapHisto() { if( _occupancy_map == nullptr ) { std::cout << " PP" << std::endl; std::cin.get() ; } std::cout << "LL" << std::endl; return _occupancy_map; }
+        TH2I* GetOccupancymapHisto() { return _occupancy_map; }
         TH2I* GetChannelmapHisto() { return _channel_map; }
         TH1F* GetAmplitudemapHisto(unsigned int pixel_id) { return _amplitude[pixel_id]; }
         // Per pixel
