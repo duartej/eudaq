@@ -108,17 +108,39 @@ void SimpleStandardPlane::reducePixels(const int reduceX, const int reduceY) {
   _binsY = reduceY;
 }
 
-std::pair<std::string, std::string> SimpleStandardPlane::getDutNameAndChannel(int index) const {
+std::array<std::string,4> SimpleStandardPlane::getDutnameChannelColRow(int index) const {
+    // FIXME -- This function is very weak, constantly check the pos value
+    
+    // XXX - Asumed to be defined with the following information:
+    // dutname:channel:colX:rowY
     if( _auxinfo.size() == 0 ) {
-        return { "", "" };
+        return { "", "", "", "" };
     }
     const std::string token(":");
     const std::string fullname = getPixelAuxInfo(index);
-    const size_t pos = fullname.find(token);
+    // Nothing is available for this pixel
+    if(fullname.empty()) {
+        return { "", "", "", "" };
+    }
+
+    size_t pos = fullname.find(token);
     const std::string dutname = fullname.substr(0, pos);
-    const std::string channel = fullname.substr(pos + token.length());
     
-    return { dutname, channel };
+    // The rest of the string
+    const std::string channel_col_row = fullname.substr(pos + token.length());
+    // Extract channel (CH<Number>) 
+    pos = channel_col_row.find(token);
+    const std::string channel = channel_col_row.substr(2,pos-2);
+    
+    // The rest of the string
+    const std::string col_row = channel_col_row.substr(pos + token.length());
+    // Extract col (col<Number>)
+    pos = col_row.find(token);
+    const std::string col = col_row.substr(3,pos-3);
+    // And finally row (row<Number>
+    const std::string row = col_row.substr(pos + 3 + token.length());
+
+    return { dutname, channel, col, row };
 }
 
 void SimpleStandardPlane::doClustering() {

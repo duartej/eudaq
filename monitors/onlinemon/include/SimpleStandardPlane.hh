@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <map>
+#include <array>
 
 #include "include/SimpleStandardHit.hh"
 #include "include/SimpleStandardCluster.hh"
@@ -74,7 +75,7 @@ public:
   SimpleStandardHit getRawHit(const int i) const { return _rawhits.at(i); }
   std::string getName() const { return _name; }
   // Only valid for timing planes,  otherwise return empyt strings
-  std::pair<std::string, std::string> getDutNameAndChannel(int index) const;
+  std::array<std::string, 4> getDutnameChannelColRow(int index) const;
   int getID() const { return _id; }
   int getMaxX() const { return _maxX; }
   int getMaxY() const { return _maxY; }
