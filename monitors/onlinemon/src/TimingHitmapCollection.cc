@@ -22,7 +22,6 @@ void TimingHitmapCollection::_FillHistograms(const SimpleStandardPlane &simpPlan
         registerPlane(simpPlane);
         isOnePlaneRegistered = true;
     }
-std::cout << " _FillHistograms: " << simpPlane.getName() << " " << simpPlane.getID()  << std::endl; 
     TimingHitmapHistos* timinghitmap = _map[simpPlane];
     // Not needed so far, maybe will need it at some point?
     // timinghitmap->Fill(simpPlane);
@@ -59,8 +58,8 @@ void TimingHitmapCollection::Write(TFile *file) {
 
         for(const auto & plane_thhistos: _map) {
             // FIXME -- Correct?
-            const auto dutname_channel = plane_thhistos.first.getDutNameAndChannel(0);
-            std::string sensorfolder(plane_thhistos.first.getName()+"_"+dutname_channel.first);
+            const auto dutname_channel = plane_thhistos.first.getDutnameChannelColRow(0);
+            std::string sensorfolder(plane_thhistos.first.getName()+"_"+dutname_channel[0]);
             gDirectory->mkdir(sensorfolder.c_str());
             gDirectory->cd(sensorfolder.c_str());
             plane_thhistos.second->Write();
@@ -92,15 +91,12 @@ void TimingHitmapCollection::Fill(const SimpleStandardEvent &simpev) {
         if(! simpPlane.isTimingPlane()) {
             continue;
         }
-std::cout << "FILL [  " << simpPlane.getName() << " " << simpPlane.getID() << " ] " << std::endl;
-std::cin.get();
         _FillHistograms(simpPlane);
     }
 }
 
 TimingHitmapHistos* TimingHitmapCollection::getTimingHitmapHistos(const std::string & sensor, int id) {
-    SimpleStandardPlane sp(sensor, id);  
-std::cout << "getTImingHitMaspHistos--> Plane: " << sp.getName() << " " << sp.getID()  << std::endl;
+    SimpleStandardPlane sp(sensor, id);
     return _map[sp];
 }
 
@@ -108,7 +104,6 @@ std::cout << "getTImingHitMaspHistos--> Plane: " << sp.getName() << " " << sp.ge
 void TimingHitmapCollection::registerPlane(const SimpleStandardPlane &p) {
     // Create the histogram and associate to the container
     _map[p] = new TimingHitmapHistos(p, _mon);
-std::cout << "registerPlane --> Plane: " << p.getName() << " " << p.getID()  << std::endl;
 
     if(_mon != nullptr) {
         if(_mon->getOnlineMon() == nullptr) {
@@ -117,51 +112,74 @@ std::cout << "registerPlane --> Plane: " << p.getName() << " " << p.getID()  << 
         }
 
         const std::string sensor = p.getName();
+        const int sensor_id = p.getID();
+
+        // Check the dut name is the same for all the channels
+        std::set<std::string> dutname_set;
+        std::string dutname;
+
+       for(unsigned int pixid = 0; pixid < p.getBinsX()*p.getBinsY(); ++pixid) {
+            auto d_ch_col_row = p.getDutnameChannelColRow(pixid);
+            if( d_ch_col_row[0].empty() ) {
+                // the pixid is not present, therefore
+                // returned empty string
+                continue;
+            }
+            dutname_set.insert( d_ch_col_row[0] );
+            dutname = d_ch_col_row[0];
+        }
+        if( dutname_set.size() > 1) {
+            // FIXME  /--> ? EUDAQ_ERROR?
+            std::cerr << "Invalid Plane topology, more than one DUT is associated to the" 
+                << " same plane" << std::endl;
+            // FIXME /-->? return;
+        }
+        // FIXME -- REMOVE std::cout << "registerPlane:: [" << sensor << "] [" << dutname << "]" << std::endl;
+        std::string treename(sensor+"/"+dutname+"/Occupancy");
+        _mon->getOnlineMon()->registerTreeItem(treename);
+        _mon->getOnlineMon()->registerHisto(treename, 
+                getTimingHitmapHistos(sensor,sensor_id)->GetOccupancymapHisto(), 
+                "COLZ", 0);
+        _mon->getOnlineMon()->addTreeItemSummary(sensor, treename);
+        
+        treename = sensor+"/"+dutname+"/Channels";
+        _mon->getOnlineMon()->registerTreeItem(treename);
+        _mon->getOnlineMon()->registerHisto(treename, 
+                getTimingHitmapHistos(sensor,sensor_id)->GetChannelmapHisto(), 
+                "TEXTCOLZ", 0);
         
         const std::string token(":");
-        for(unsigned int col = 0; col < p.getMaxX(); ++col) {
-            for(unsigned int row = 0; row < p.getMaxY(); ++row) {
-                const unsigned int pixid = col * p.getMaxY() + row;
-                auto d_ch = p.getDutNameAndChannel(pixid);
-                const std::string dutname = d_ch.first;
-                const std::string channel = d_ch.second;
-                if( d_ch.second.empty() ) { 
-                    continue;
-                }
-                const std::string fullname = dutname+":"+channel;
-std::cout << "---> " <<  fullname << " in RegisterPlane" << " pixeid:" << pixid << std::endl;
-                std::string treename(sensor+"/"+dutname+"/Occupancy");
-                _mon->getOnlineMon()->registerTreeItem(treename);
-                _mon->getOnlineMon()->registerHisto(treename, 
-                        getTimingHitmapHistos(sensor,pixid)->GetOccupancymapHisto(), 
-                        "COLZ", 0);
-                _mon->getOnlineMon()->addTreeItemSummary(sensor, treename);
-                
-                treename = sensor+"/"+dutname+"/Channels";
-                _mon->getOnlineMon()->registerTreeItem(treename);
-                _mon->getOnlineMon()->registerHisto(treename, 
-                        getTimingHitmapHistos(sensor,pixid)->GetChannelmapHisto(), 
-                        "TEXTCOLZ", 0);
-
-                // Amplitude and waveforms, one per channel/pixel
-                // FIXME -- OR channel?
-                std::string histoname = sensor+"/"+dutname+"/Waveforms/Pixel " + 
-                    std::to_string(col) + "," + std::to_string(row);
-                _mon->getOnlineMon()->registerTreeItem(histoname);
-                _mon->getOnlineMon()->registerHisto(histoname,
-                        getTimingHitmapHistos(sensor,pixid)->getWaveformHisto(pixid), 
-                        "COLZ", 0);
-                _mon->getOnlineMon()->makeTreeItemSummary(sensor+"/"+dutname+"/Waveforms");
-                // And amplitude
-                // FIXME -- OR Channel?
-                histoname = sensor+"/"+dutname+"/Amplitude/Pixel " + 
-                    std::to_string(col) + "," + std::to_string(row);
-                _mon->getOnlineMon()->registerTreeItem(histoname);
-                _mon->getOnlineMon()->registerHisto(histoname,
-                        getTimingHitmapHistos(sensor,pixid)->GetAmplitudemapHisto(pixid));
-                _mon->getOnlineMon()->makeTreeItemSummary(sensor+"/"+dutname+"/Amplitudes");
+        for(unsigned int pixid = 0 ; pixid < p.getBinsX()*p.getBinsY(); ++pixid) {
+            auto d_ch_col_row = p.getDutnameChannelColRow(pixid);
+            if( d_ch_col_row[0].empty() ) { 
+                // the pixid is not present, therefore
+                // returned empty string
+                continue;
             }
+            const std::string channel = d_ch_col_row[1];
+            unsigned int col = std::stoi(d_ch_col_row[2]);
+            unsigned int row = std::stoi(d_ch_col_row[3]);
+            // FIX<E -- REMOVE std::cout << " ============ col: " << col << " row: " << row << " [" << dutname 
+            // FIXME -- REMOVE   << "] [" << channel << "]" << std::endl;
+
+            const std::string fullname = dutname+":"+channel;
+            // Amplitude and waveforms, one per channel/pixel
+            // FIXME -- OR channel?
+            std::string histoname = sensor+"/"+dutname+"/Waveforms/Pixel " + 
+                std::to_string(col) + "," + std::to_string(row);
+            _mon->getOnlineMon()->registerTreeItem(histoname);
+            _mon->getOnlineMon()->registerHisto(histoname,
+                    getTimingHitmapHistos(sensor,sensor_id)->getWaveformHisto(pixid), 
+                    "COLZ", 0);
+            _mon->getOnlineMon()->makeTreeItemSummary(sensor+"/"+dutname+"/Waveforms");
+            // And amplitude
+            // FIXME -- OR Channel?
+            histoname = sensor+"/"+dutname+"/Amplitude/Pixel " + 
+                std::to_string(col) + "," + std::to_string(row);
+            _mon->getOnlineMon()->registerTreeItem(histoname);
+            _mon->getOnlineMon()->registerHisto(histoname,
+                    getTimingHitmapHistos(sensor,sensor_id)->GetAmplitudemapHisto(pixid));
+            _mon->getOnlineMon()->makeTreeItemSummary(sensor+"/"+dutname+"/Amplitudes");
         }
     }
-std::cout << "DDONE ===== " << std::endl;
 }
