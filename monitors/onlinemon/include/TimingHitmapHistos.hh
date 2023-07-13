@@ -30,6 +30,10 @@ class TimingHitmapHistos {
         
 
         bool _wait;
+
+        std::map<int,std::pair<int,int> > _into_colrow;
+        std::map<std::pair<int,int>, int> _into_pixid;
+
         TH2I *_occupancy_map;
         TH2I *_channel_map;
         std::map<int, TH1F*> _amplitude;

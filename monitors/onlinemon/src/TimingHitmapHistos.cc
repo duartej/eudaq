@@ -9,14 +9,12 @@
 #include <cstdlib>
 
 TimingHitmapHistos::TimingHitmapHistos(SimpleStandardPlane p, RootMonitor *mon) 
-    : _occupancy_map(nullptr), _channel_map(nullptr)
+    : _occupancy_map(nullptr), _channel_map(nullptr) {
 
-   {
-    
     _wait = false;
 
-    auto dutname_dummychannel = p.getDutNameAndChannel(0);
-    _dutname = dutname_dummychannel.first;
+    auto dutname_dummychannel_col_row = p.getDutnameChannelColRow(0);
+    _dutname = dutname_dummychannel_col_row[0];
     _boardname = p.getName();
     
     _mon = mon;
@@ -29,56 +27,61 @@ TimingHitmapHistos::TimingHitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
     _maxX = p.getMaxX();
     _maxY = p.getMaxY();
 
-    std::string title(_boardname+" "+_dutname+" Occupancy Map");
+    std::string title(_dutname+" ["+_boardname+"]  Occupancy Map");
     std::string hname("h_"+_boardname+"_"+_dutname+"_occupancymap");
     if(_maxX != -1 && _maxY != -1) {
         _occupancy_map = new TH2I(hname.c_str(), title.c_str(), _maxX, 0, _maxX, _maxY, 0, _maxY);
-std::cout << " -->> " << _occupancy_map << std::endl;
         _SetHistoAxisLabels(_occupancy_map, "X", "Y");
         
-        title = _boardname+" "+_dutname+" Channel Map";
+        title = _dutname+" ["+_boardname+"]  Channel Map";
         hname = "h_"+_boardname+"_"+_dutname+"_channel_map";
         _channel_map = new TH2I(hname.c_str(), title.c_str(), _maxX, 0, _maxX, _maxY, 0, _maxY);
+    
+    for(unsigned int pixid = 0; pixid < p.getBinsX()*p.getBinsY(); ++pixid) {
+            auto d_ch_col_row = p.getDutnameChannelColRow(pixid);
+            // Cross-check there is no a filled up pixels
+            if( d_ch_col_row[0].empty() ) {
+                continue;
+            }                     
+            // Extracting the pixel col and row
+            unsigned int col = std::stoi(d_ch_col_row[2]);
+            unsigned int row = std::stoi(d_ch_col_row[3]);
+            //std::cout << "    TIMINGHITHISTOS::BOARD: [" 
+            //    << _boardname << "] [" << _dutname << "]" << " CH:[" 
+            //    << d_ch_col_row[1] << "] PIXEL: col: " << col << ", row: " << row << std::endl;
 
-        for(unsigned int col = 0; col < _maxX; ++col) {
-            for(unsigned int row = 0; row < _maxY; ++row) {
-                const unsigned int pixid = col * _maxY + row;
-                auto d_ch = p.getDutNameAndChannel(pixid);
-                // Cross-check there is no a filled up pixels
-                if( d_ch.second.empty() ) {
-                    continue;
-                }                     
-                title = _boardname+" "+_dutname+" CH:"+d_ch.second+" Waveforms  (Col:"
-                    +std::to_string(col)+",Row:"+std::to_string(row);
-                hname = "h_waveform_"+_boardname+"_"+_dutname+"_"+std::to_string(pixid);
-std::cerr << "BOARD: [" << _boardname << "] [" << _dutname << "]" << " CH:[" << d_ch.second << "]" <<  std::endl;
-                // XXX -- HARDCODED!!  I need to extract it from config
-                _waveforms[pixid] = new TH2F(hname.c_str(), title.c_str(), 1024, -0.5,1023.5, 200, -0.045, 0.045); 
-                _waveforms[pixid]->SetCanExtend(TH1::kAllAxes);
+            // Map to convert from col,row to pixid and viceversa
+            _into_pixid[{col,row}] = pixid;
+            _into_colrow[pixid] = {col,row};
+            
+            title = _dutname+" ["+_boardname+"] CH:"+d_ch_col_row[1]+" Waveforms  (Col:"
+                +std::to_string(col)+",Row:"+std::to_string(row)+")";
+            hname = "h_waveform_"+_boardname+"_"+_dutname+"_"+std::to_string(pixid);
+            // XXX -- HARDCODED!!  I need to extract it from config
+            _waveforms[pixid] = new TH2F(hname.c_str(), title.c_str(), 1024, -0.5,1023.5, 200, -0.045, 0.045); 
+            _waveforms[pixid]->SetCanExtend(TH1::kAllAxes);
 
-                // amplitude 
-                title = _boardname+" "+_dutname+" CH:"+d_ch.second+" Amplitude  (Col:"
-                    +std::to_string(col)+",Row:"+std::to_string(row);
-                hname = "h_amplitude_"+_boardname+"_"+_dutname+"_"+std::to_string(pixid);
-                _amplitude[pixid] = new TH1F(hname.c_str(), title.c_str(), 1000, 0, 1); 
-                _amplitude[pixid]->SetCanExtend(TH1::kAllAxes);
-                
-                std::string chstr = d_ch.second;
-                // Be careful, probably contains CH
-                if( ! std::isdigit(chstr[0]) ) {
-                    chstr.replace(0,2,"");
-                }
-                // FIXME -- CHeck it again! This is a problematic bug to spot otherwise
-                if( ! std::isdigit(chstr[0]) ) {
-                    std::cerr << "Unexpected format for the CHANNEL: [" << chstr << "]" <<std::endl;
-                }
-                int channel = std::stoi(chstr);
-    std::cout << "WHAT THE FIUCKE!! " << channel << std::endl;
-                // The Channel map, a static map, we can fill it up now
-                _channel_map->SetBinContent(col,row,channel);
-
-    std::cout << "WHAT THE FIUCKE!! Afterwards " << channel << std::endl;
+            // amplitude 
+            title = _dutname+" ["+_boardname+"] CH:"+d_ch_col_row[1]+" Amplitude  (Col:"
+                +std::to_string(col)+",Row:"+std::to_string(row)+")";
+            hname = "h_amplitude_"+_boardname+"_"+_dutname+"_"+std::to_string(pixid);
+            _amplitude[pixid] = new TH1F(hname.c_str(), title.c_str(), 1000, 0, 1); 
+            _amplitude[pixid]->SetCanExtend(TH1::kAllAxes);
+            
+            std::string chstr = d_ch_col_row[1];
+            // Be careful, probably contains CH
+            if( ! std::isdigit(chstr[0]) ) {
+                chstr.replace(0,2,"");
             }
+            // FIXME -- CHeck it again! This is a problematic bug to spot otherwise
+            if( ! std::isdigit(chstr[0]) ) {
+                std::cerr << "Unexpected format for the CHANNEL: [" << chstr << "]" <<std::endl;
+            }
+            int channel = std::stoi(chstr);
+            // The Channel map, a static map, we can fill it up now
+            const int col_bin = _channel_map->GetXaxis()->FindBin(col);
+            const int row_bin = _channel_map->GetYaxis()->FindBin(row);
+            _channel_map->SetBinContent(col_bin,row_bin,channel);
         }
     } else {
         std::cerr << "No max sensor size known!" << std::endl;
@@ -91,21 +94,18 @@ static int FILLED_WF = 0;
 
 void TimingHitmapHistos::Fill(const SimpleStandardHit &hit) {
     // Be sure it is not a fake pixel (just to fill up the board)
-std::cout << "ANTES " << std::endl;
     int pixel_x = hit.getX();
     int pixel_y = hit.getY();
     
-    const unsigned int pixid = pixel_x * _maxY + pixel_y;
+    const unsigned int pixid = _into_pixid[{pixel_x,pixel_y}];
     if( _waveforms.find(pixid) == _waveforms.end() )
     {
         return;
     }
  
-std::cout << "ANTES-1 " << std::endl;
-    if(_occupancy_map != nullptr && std::abs(hit.getTOT()) > 0.0) {
+    if(_occupancy_map != nullptr && std::abs(hit.getAmplitude()) > 0.0) {
         _occupancy_map->Fill(pixel_x, pixel_y);
     }
-std::cout << "DESTPUE-21 " << std::endl;
 
 
   // FIXME -- Not always, one each 1000 or so?
@@ -118,11 +118,7 @@ std::cout << "DESTPUE-21 " << std::endl;
         t.push_back( _k*dt );
         _s.push_back(_k);
     }
-std::cout << "HOLA -098" << std::endl;
-std::cout << "HOLA QUIEN? ["<< pixid << "]: " ;
-for(const auto & _ll: _waveforms){ std::cout << _ll.first << " ";} std::cout <<std::endl;
     _waveforms[pixid]->FillN(wf.size(), &_s[0], &(hit.getWaveform()[0]), nullptr, 1);
-std::cout << "HOLA -23 " << std::endl;
     ++FILLED_WF;
 }
 
