@@ -164,16 +164,22 @@ void TimingHitmapCollection::registerPlane(const SimpleStandardPlane &p) {
 
             const std::string fullname = dutname+":"+channel;
             // Amplitude and waveforms, one per channel/pixel
-            // FIXME -- OR channel?
             std::string histoname = sensor+"/"+dutname+"/Waveforms/Pixel " + 
                 std::to_string(col) + "," + std::to_string(row);
             _mon->getOnlineMon()->registerTreeItem(histoname);
             _mon->getOnlineMon()->registerHisto(histoname,
                     getTimingHitmapHistos(sensor,sensor_id)->getWaveformHisto(pixid), 
+                    "HISTL PMC LMC", 0);
+            _mon->getOnlineMon()->makeTreeItemSummary(sensor+"/"+dutname+"/Waveforms");            
+            // Unfiltered, all of them
+            histoname = sensor+"/"+dutname+"/Unfiltered_Waveforms/Pixel " + 
+                std::to_string(col) + "," + std::to_string(row);
+            _mon->getOnlineMon()->registerTreeItem(histoname);
+            _mon->getOnlineMon()->registerHisto(histoname,
+                    getTimingHitmapHistos(sensor,sensor_id)->getUnfilteredWaveformHisto(pixid), 
                     "COLZ", 0);
-            _mon->getOnlineMon()->makeTreeItemSummary(sensor+"/"+dutname+"/Waveforms");
+            _mon->getOnlineMon()->makeTreeItemSummary(sensor+"/"+dutname+"/Unfiltered_Waveforms");
             // And amplitude
-            // FIXME -- OR Channel?
             histoname = sensor+"/"+dutname+"/Amplitude/Pixel " + 
                 std::to_string(col) + "," + std::to_string(row);
             _mon->getOnlineMon()->registerTreeItem(histoname);

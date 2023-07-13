@@ -58,14 +58,22 @@ TimingHitmapHistos::TimingHitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
                 +std::to_string(col)+",Row:"+std::to_string(row)+")";
             hname = "h_waveform_"+_boardname+"_"+_dutname+"_"+std::to_string(pixid);
             // XXX -- HARDCODED!!  I need to extract it from config
-            _waveforms[pixid] = new TH2F(hname.c_str(), title.c_str(), 1024, -0.5,1023.5, 200, -0.045, 0.045); 
+            //_waveforms[pixid] = new TH2F(hname.c_str(), title.c_str(), 1024, -0.5,1023.5, 200, -0.045, 0.045); 
+            _waveforms[pixid] = new TH1F(hname.c_str(), title.c_str(), 1024, -0.5,1023.5); 
             _waveforms[pixid]->SetCanExtend(TH1::kAllAxes);
+            // Unfiltered
+            title = _dutname+" ["+_boardname+"] CH:"+d_ch_col_row[1]+" (not-filtered) Waveforms  (Col:"
+                +std::to_string(col)+",Row:"+std::to_string(row)+")";
+            hname = "h_unfiltered_waveform_"+_boardname+"_"+_dutname+"_"+std::to_string(pixid);
+            // XXX -- HARDCODED!!  I need to extract it from config
+            _waveforms_not_filtered[pixid] = new TH2F(hname.c_str(), title.c_str(), 1024, -0.5,1023.5, 200, -0.045, 0.045); 
+            _waveforms_not_filtered[pixid]->SetCanExtend(TH1::kAllAxes);
 
             // amplitude 
             title = _dutname+" ["+_boardname+"] CH:"+d_ch_col_row[1]+" Amplitude  (Col:"
                 +std::to_string(col)+",Row:"+std::to_string(row)+")";
             hname = "h_amplitude_"+_boardname+"_"+_dutname+"_"+std::to_string(pixid);
-            _amplitude[pixid] = new TH1F(hname.c_str(), title.c_str(), 1000, 0, 1); 
+            _amplitude[pixid] = new TH1F(hname.c_str(), title.c_str(), 1000, -0.3, 0.3); 
             _amplitude[pixid]->SetCanExtend(TH1::kAllAxes);
             
             std::string chstr = d_ch_col_row[1];
@@ -89,9 +97,6 @@ TimingHitmapHistos::TimingHitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
 }
 
 
-// Use it to dump just a few wf (every 1000)
-static int FILLED_WF = 0;
-
 void TimingHitmapHistos::Fill(const SimpleStandardHit &hit) {
     // Be sure it is not a fake pixel (just to fill up the board)
     int pixel_x = hit.getX();
@@ -103,13 +108,8 @@ void TimingHitmapHistos::Fill(const SimpleStandardHit &hit) {
         return;
     }
  
-    if(_occupancy_map != nullptr && std::abs(hit.getAmplitude()) > 0.0) {
-        _occupancy_map->Fill(pixel_x, pixel_y);
-    }
-
-
-  // FIXME -- Not always, one each 1000 or so?
-  // if(FILLED_WF % 500) == 0 ) {
+    // FIXME  -- XXX -- PERFORM HERE some quick waveform analysis: 
+    //                  baseline, amplitude estimations, timing of arrival?
     const std::vector<double> wf = hit.getWaveform();
     const float dt = hit.getWaveformDX();
     std::vector<double> t;
@@ -118,8 +118,17 @@ void TimingHitmapHistos::Fill(const SimpleStandardHit &hit) {
         t.push_back( _k*dt );
         _s.push_back(_k);
     }
-    _waveforms[pixid]->FillN(wf.size(), &_s[0], &(hit.getWaveform()[0]), nullptr, 1);
-    ++FILLED_WF;
+    _waveforms_not_filtered[pixid]->FillN(wf.size(), &_s[0], &(hit.getWaveform()[0]), nullptr, 1);
+    
+    if(_occupancy_map != nullptr && std::fabs(hit.getAmplitude()) > 0.0) {
+        _occupancy_map->Fill(pixel_x, pixel_y);
+        if( _amplitude[pixid] != nullptr ) {
+            _amplitude[pixid]->Fill(hit.getAmplitude());
+        }
+        //_waveforms[pixid]->FillN(wf.size(), &_s[0], &(hit.getWaveform()[0]), nullptr, 1);
+        _waveforms[pixid]->FillN(wf.size(), &_s[0], &(hit.getWaveform()[0]));
+    }
+
 }
 
 void TimingHitmapHistos::Fill(const SimpleStandardPlane &plane) {
@@ -134,6 +143,9 @@ void TimingHitmapHistos::Reset() {
     _occupancy_map->Reset();
     _channel_map->Reset();
     for(auto & id_hwf: _waveforms) {
+        id_hwf.second->Reset();
+    }
+    for(auto & id_hwf: _waveforms_not_filtered) {
         id_hwf.second->Reset();
     }
     for(auto & id_hamp: _amplitude) {
@@ -152,6 +164,9 @@ void TimingHitmapHistos::Write() {
     _occupancy_map->Write();
     _channel_map->Write();
     for(auto & id_hwf: _waveforms) {
+        id_hwf.second->Write();
+    }
+    for(auto & id_hwf: _waveforms_not_filtered) {
         id_hwf.second->Write();
     }
     for(auto & id_hamp: _amplitude) {
