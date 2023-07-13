@@ -262,7 +262,8 @@ void RootMonitor::DoReceive(eudaq::EventSP evsp) {
                   hit.setWaveformDX(plane.GetWaveformDX(index));
               }
               // Overwrite previos setting (was integer, need analog estimation)
-              hit.setTOT(plane.GetPixel(index));
+              // But setTOT is integer
+              hit.setAmplitude(plane.GetPixel(index));
           }
 
           simpPlane.addHit(hit);
