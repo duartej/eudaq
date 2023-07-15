@@ -344,11 +344,11 @@ std::cout << "Block id: " << ch_rowcollist.first << " pixid: " << pixid << ", pi
                 plane.SetWaveform(pixid, wf, _t0[dev_id], _dt[dev_id] );
                 ++pixid;
             }
+        }
         d2->AddPlane(plane);
     }
 /*d2->Print(std::cout);
 std::cin.get();*/
-
     return true;
 }
 
