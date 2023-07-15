@@ -113,7 +113,7 @@ std::array<std::string,4> SimpleStandardPlane::getDutnameChannelColRow(int index
     
     // XXX - Asumed to be defined with the following information:
     // dutname:channel:colX:rowY
-    if( _auxinfo.size() == 0 ) {
+    if( _auxinfo.size() <= index ) {
         return { "", "", "", "" };
     }
     const std::string token(":");
