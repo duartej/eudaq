@@ -163,15 +163,14 @@ void TimingHitmapCollection::registerPlane(const SimpleStandardPlane &p) {
             // FIXME -- REMOVE   << "] [" << channel << "]" << std::endl;
 
             const std::string fullname = dutname+":"+channel;
-            // Amplitude and waveforms, one per channel/pixel
-            std::string histoname = sensor+"/"+dutname+"/Waveforms/Pixel " + 
+            // And amplitude
+            std::string histoname = sensor+"/"+dutname+"/Signal/Pixel " + 
                 std::to_string(col) + "," + std::to_string(row);
             _mon->getOnlineMon()->registerTreeItem(histoname);
             _mon->getOnlineMon()->registerHisto(histoname,
-                    getTimingHitmapHistos(sensor,sensor_id)->getWaveformHisto(pixid), 
-                    "HISTL PMC LMC", 0);
-            _mon->getOnlineMon()->makeTreeItemSummary(sensor+"/"+dutname+"/Waveforms");            
-            // Unfiltered, all of them
+                    getTimingHitmapHistos(sensor,sensor_id)->GetSignalmapHisto(pixid));
+            _mon->getOnlineMon()->makeTreeItemSummary(sensor+"/"+dutname+"/Signal");
+            // Unfiltered waveforms (all events)
             histoname = sensor+"/"+dutname+"/Unfiltered_Waveforms/Pixel " + 
                 std::to_string(col) + "," + std::to_string(row);
             _mon->getOnlineMon()->registerTreeItem(histoname);
@@ -179,6 +178,14 @@ void TimingHitmapCollection::registerPlane(const SimpleStandardPlane &p) {
                     getTimingHitmapHistos(sensor,sensor_id)->getUnfilteredWaveformHisto(pixid), 
                     "COLZ", 0);
             _mon->getOnlineMon()->makeTreeItemSummary(sensor+"/"+dutname+"/Unfiltered_Waveforms");
+            // Waveforms with 3-sigma amplitudes away from baseline, one per channel/pixel
+            histoname = sensor+"/"+dutname+"/Waveforms/Pixel " + 
+                std::to_string(col) + "," + std::to_string(row);
+            _mon->getOnlineMon()->registerTreeItem(histoname);
+            _mon->getOnlineMon()->registerHisto(histoname,
+                    getTimingHitmapHistos(sensor,sensor_id)->getWaveformHisto(pixid), 
+                    "HISTL PMC LMC", 0);
+            _mon->getOnlineMon()->makeTreeItemSummary(sensor+"/"+dutname+"/Waveforms");            
             // And amplitude
             histoname = sensor+"/"+dutname+"/Amplitude/Pixel " + 
                 std::to_string(col) + "," + std::to_string(row);

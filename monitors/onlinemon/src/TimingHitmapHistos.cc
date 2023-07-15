@@ -54,13 +54,6 @@ TimingHitmapHistos::TimingHitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
             _into_pixid[{col,row}] = pixid;
             _into_colrow[pixid] = {col,row};
             
-            title = _dutname+" ["+_boardname+"] CH:"+d_ch_col_row[1]+" Waveforms  (Col:"
-                +std::to_string(col)+",Row:"+std::to_string(row)+")";
-            hname = "h_waveform_"+_boardname+"_"+_dutname+"_"+std::to_string(pixid);
-            // XXX -- HARDCODED!!  I need to extract it from config
-            //_waveforms[pixid] = new TH2F(hname.c_str(), title.c_str(), 1024, -0.5,1023.5, 200, -0.045, 0.045); 
-            _waveforms[pixid] = new TH1F(hname.c_str(), title.c_str(), 1024, -0.5,1023.5); 
-            _waveforms[pixid]->SetCanExtend(TH1::kAllAxes);
             // Unfiltered
             title = _dutname+" ["+_boardname+"] CH:"+d_ch_col_row[1]+" (not-filtered) Waveforms  (Col:"
                 +std::to_string(col)+",Row:"+std::to_string(row)+")";
@@ -68,6 +61,21 @@ TimingHitmapHistos::TimingHitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
             // XXX -- HARDCODED!!  I need to extract it from config
             _waveforms_not_filtered[pixid] = new TH2F(hname.c_str(), title.c_str(), 1024, -0.5,1023.5, 200, -0.045, 0.045); 
             _waveforms_not_filtered[pixid]->SetCanExtend(TH1::kAllAxes);
+            
+            // raw signal at each sample (in Volts)
+            title = _dutname+" ["+_boardname+"] CH:"+d_ch_col_row[1]+" Signal  (Col:"
+                +std::to_string(col)+",Row:"+std::to_string(row)+")";
+            hname = "h_signal_"+_boardname+"_"+_dutname+"_"+std::to_string(pixid);
+            _signal[pixid] = new TH1F(hname.c_str(), title.c_str(), 1000, -0.3, 0.3); 
+            _signal[pixid]->SetCanExtend(TH1::kAllAxes);
+            
+            title = _dutname+" ["+_boardname+"] CH:"+d_ch_col_row[1]+" Waveforms  (Col:"
+                +std::to_string(col)+",Row:"+std::to_string(row)+")";
+            hname = "h_waveform_"+_boardname+"_"+_dutname+"_"+std::to_string(pixid);
+            // XXX -- HARDCODED!!  I need to extract it from config
+            //_waveforms[pixid] = new TH2F(hname.c_str(), title.c_str(), 1024, -0.5,1023.5, 200, -0.045, 0.045); 
+            _waveforms[pixid] = new TH1F(hname.c_str(), title.c_str(), 1024, -0.5,1023.5); 
+            _waveforms[pixid]->SetCanExtend(TH1::kAllAxes);
 
             // amplitude 
             title = _dutname+" ["+_boardname+"] CH:"+d_ch_col_row[1]+" Amplitude  (Col:"
@@ -119,7 +127,10 @@ void TimingHitmapHistos::Fill(const SimpleStandardHit &hit) {
         _s.push_back(_k);
     }
     _waveforms_not_filtered[pixid]->FillN(wf.size(), &_s[0], &(hit.getWaveform()[0]), nullptr, 1);
+    // fill each signal of the sample
+    _signal[pixid]->FillN(wf.size(), &(hit.getWaveform())[0], nullptr);
     
+    // Only fill if the amplitude evaluation gets a 3-sigma (from baseline) signal
     if(_occupancy_map != nullptr && std::fabs(hit.getAmplitude()) > 0.0) {
         _occupancy_map->Fill(pixel_x, pixel_y);
         if( _amplitude[pixid] != nullptr ) {
@@ -151,6 +162,9 @@ void TimingHitmapHistos::Reset() {
     for(auto & id_hamp: _amplitude) {
         id_hamp.second->Reset();
     }
+    for(auto & id_hamp: _signal) {
+        id_hamp.second->Reset();
+    }
 }
 
 void TimingHitmapHistos::Calculate(const int currentEventNum) {
@@ -170,6 +184,9 @@ void TimingHitmapHistos::Write() {
         id_hwf.second->Write();
     }
     for(auto & id_hamp: _amplitude) {
+        id_hamp.second->Write();
+    }
+    for(auto & id_hamp: _signal) {
         id_hamp.second->Write();
     }
 }
