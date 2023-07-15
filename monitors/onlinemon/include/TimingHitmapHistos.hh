@@ -38,7 +38,7 @@ class TimingHitmapHistos {
         TH2I *_channel_map;
         std::map<int, TH1F*> _signal;
         std::map<int, TH1F*> _amplitude;
-        //std::map<int, TH1F*> _baseline;
+        std::map<int, TH1F*> _baseline;
         // TH1F* _toa;
         // ???
         std::map<int,TH1F*> _waveforms;
@@ -53,10 +53,13 @@ class TimingHitmapHistos {
         void Calculate(const int currentEventNum);
         void Write();
 
+        std::pair<double,double> getBaselineAndAmplitude(const std::vector<double> & wf);
+
         TH2I* GetOccupancymapHisto() { return _occupancy_map; }
         TH2I* GetChannelmapHisto() { return _channel_map; }
         TH1F* GetAmplitudemapHisto(unsigned int pixel_id) { return _amplitude[pixel_id]; }
         TH1F* GetSignalmapHisto(unsigned int pixel_id) { return _signal[pixel_id]; }
+        TH1F* GetBaselineHisto(unsigned int pixel_id) { return _baseline[pixel_id]; }
         // Per pixel
         //TH2F * getWaveformHisto(unsigned int pixel_id) { return _waveforms[pixel_id]; }
         TH1F * getWaveformHisto(unsigned int pixel_id) { return _waveforms[pixel_id]; }

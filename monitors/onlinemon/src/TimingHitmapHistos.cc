@@ -7,6 +7,8 @@
 #include "TimingHitmapHistos.hh"
 #include "OnlineMon.hh"
 #include <cstdlib>
+#include <algorithm>
+#include <numeric>
 
 TimingHitmapHistos::TimingHitmapHistos(SimpleStandardPlane p, RootMonitor *mon) 
     : _occupancy_map(nullptr), _channel_map(nullptr) {
@@ -69,6 +71,20 @@ TimingHitmapHistos::TimingHitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
             _signal[pixid] = new TH1F(hname.c_str(), title.c_str(), 1000, -0.3, 0.3); 
             _signal[pixid]->SetCanExtend(TH1::kAllAxes);
             
+            // baseline per event (in Volts)
+            title = _dutname+" ["+_boardname+"] CH:"+d_ch_col_row[1]+" Baseline  (Col:"
+                +std::to_string(col)+",Row:"+std::to_string(row)+")";
+            hname = "h_baseline_"+_boardname+"_"+_dutname+"_"+std::to_string(pixid);
+            _baseline[pixid] = new TH1F(hname.c_str(), title.c_str(), 1000, -0.03, 0.03); 
+            _baseline[pixid]->SetCanExtend(TH1::kAllAxes);
+            
+            // amplitude 
+            title = _dutname+" ["+_boardname+"] CH:"+d_ch_col_row[1]+" Amplitude  (Col:"
+                +std::to_string(col)+",Row:"+std::to_string(row)+")";
+            hname = "h_amplitude_"+_boardname+"_"+_dutname+"_"+std::to_string(pixid);
+            _amplitude[pixid] = new TH1F(hname.c_str(), title.c_str(), 1000, -0.3, 0.3); 
+            _amplitude[pixid]->SetCanExtend(TH1::kAllAxes);
+            
             title = _dutname+" ["+_boardname+"] CH:"+d_ch_col_row[1]+" Waveforms  (Col:"
                 +std::to_string(col)+",Row:"+std::to_string(row)+")";
             hname = "h_waveform_"+_boardname+"_"+_dutname+"_"+std::to_string(pixid);
@@ -77,12 +93,6 @@ TimingHitmapHistos::TimingHitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
             _waveforms[pixid] = new TH1F(hname.c_str(), title.c_str(), 1024, -0.5,1023.5); 
             _waveforms[pixid]->SetCanExtend(TH1::kAllAxes);
 
-            // amplitude 
-            title = _dutname+" ["+_boardname+"] CH:"+d_ch_col_row[1]+" Amplitude  (Col:"
-                +std::to_string(col)+",Row:"+std::to_string(row)+")";
-            hname = "h_amplitude_"+_boardname+"_"+_dutname+"_"+std::to_string(pixid);
-            _amplitude[pixid] = new TH1F(hname.c_str(), title.c_str(), 1000, -0.3, 0.3); 
-            _amplitude[pixid]->SetCanExtend(TH1::kAllAxes);
             
             std::string chstr = d_ch_col_row[1];
             // Be careful, probably contains CH
@@ -129,17 +139,17 @@ void TimingHitmapHistos::Fill(const SimpleStandardHit &hit) {
     _waveforms_not_filtered[pixid]->FillN(wf.size(), &_s[0], &(hit.getWaveform()[0]), nullptr, 1);
     // fill each signal of the sample
     _signal[pixid]->FillN(wf.size(), &(hit.getWaveform())[0], nullptr);
+    // Some quick calculations:
+    auto baseline_amplitude = getBaselineAndAmplitude(hit.getWaveform());
+    _baseline[pixid]->Fill(baseline_amplitude.first);
     
     // Only fill if the amplitude evaluation gets a 3-sigma (from baseline) signal
-    if(_occupancy_map != nullptr && std::fabs(hit.getAmplitude()) > 0.0) {
+    if(std::fabs(baseline_amplitude.second) > 0) {
+        _amplitude[pixid]->Fill(baseline_amplitude.second);
+
         _occupancy_map->Fill(pixel_x, pixel_y);
-        if( _amplitude[pixid] != nullptr ) {
-            _amplitude[pixid]->Fill(hit.getAmplitude());
-        }
-        //_waveforms[pixid]->FillN(wf.size(), &_s[0], &(hit.getWaveform()[0]), nullptr, 1);
         _waveforms[pixid]->FillN(wf.size(), &_s[0], &(hit.getWaveform()[0]));
     }
-
 }
 
 void TimingHitmapHistos::Fill(const SimpleStandardPlane &plane) {
@@ -163,6 +173,9 @@ void TimingHitmapHistos::Reset() {
         id_hamp.second->Reset();
     }
     for(auto & id_hamp: _signal) {
+        id_hamp.second->Reset();
+    }
+    for(auto & id_hamp: _baseline) {
         id_hamp.second->Reset();
     }
 }
@@ -189,6 +202,9 @@ void TimingHitmapHistos::Write() {
     for(auto & id_hamp: _signal) {
         id_hamp.second->Write();
     }
+    for(auto & id_hamp: _baseline) {
+        id_hamp.second->Write();
+    }
 }
 
 int TimingHitmapHistos::_SetHistoAxisLabelx(TH1 *histo, string xlabel) {
@@ -211,3 +227,58 @@ int TimingHitmapHistos::_SetHistoAxisLabely(TH1 *histo, string ylabel) {
     }
     return 0;
 }
+
+std::pair<double,double> TimingHitmapHistos::getBaselineAndAmplitude(const std::vector<double> & waveform) {
+    // Polarity
+    auto itminmax = std::minmax_element(waveform.begin(), waveform.end());
+    const double min = *itminmax.first;
+    const double max = *itminmax.second;
+    int polarity = 1;
+    if( std::abs(*itminmax.first) > std::abs(*itminmax.second) ) {
+        polarity = -1;
+    }
+    
+    std::vector<double> wf_abs(waveform);
+    for(double & v: wf_abs) {
+        v * polarity;
+    }
+    //
+    // All signals are now positives
+    // -----------------------------
+
+    // Sorted: smaller first
+    std::sort(wf_abs.begin(), wf_abs.end());
+    const size_t wfsize = wf_abs.size();
+    if(wfsize == 0) {
+        return { 0.0, 0.0} ;
+    }
+
+    double baseline = 0;
+    if(wfsize % 2 == 0) {
+        // If even, we need to obtain the average of the two central values
+        baseline = (wf_abs[wfsize/2 - 1]+wf_abs[wfsize/2])/2.0;
+    } 
+    else {
+        baseline = wf_abs[wfsize/2];
+    }
+    
+    // We need to evaluate a kind of sigma, to get an estimation
+    // if there is a signal there
+    const double wf_amplitude_max = wf_abs[wfsize-1];
+
+    // --> Calculate the deviation standard -- XXX - ?
+    const double mean = std::accumulate(wf_abs.begin(), wf_abs.end(),0.0)/wfsize;
+    auto sum_term = [mean](double init, double value)-> double { return init + (value - mean)*(value - mean); };
+    const double variance = std::accumulate(wf_abs.begin(), wf_abs.end(), 0.0, sum_term);
+    const double stddev = std::sqrt(variance/wfsize);
+    
+/*std::cout << " Baseline: " << baseline << " -- " << wf_amplitude_max 
+    << " 3sigma?" << 3.0*stddev << std::endl;*/
+    // Assume 3 sigma to be signal
+    if( wf_amplitude_max > 3.0*(baseline + stddev) ) {
+        return {baseline*polarity, wf_amplitude_max*polarity};
+    }
+
+    return {baseline*polarity, 0.0};
+}
+
