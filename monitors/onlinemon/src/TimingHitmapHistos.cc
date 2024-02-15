@@ -64,12 +64,27 @@ TimingHitmapHistos::TimingHitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
             _waveforms_not_filtered[pixid] = new TH2F(hname.c_str(), title.c_str(), 1024, -0.5,1023.5, 200, -0.045, 0.045); 
             _waveforms_not_filtered[pixid]->SetCanExtend(TH1::kAllAxes);
             
+            // Unfiltered
+            title = _dutname+" ["+_boardname+"] CH:"+d_ch_col_row[1]+" (not-filtered) Waveforms  (Col:"
+                +std::to_string(col)+",Row:"+std::to_string(row)+")";
+            hname = "h_timevsminwfm_"+_boardname+"_"+_dutname+"_"+std::to_string(pixid);
+            // XXX -- HARDCODED!!  I need to extract it from config
+            _time_minwaveform[pixid] = new TH2F(hname.c_str(), title.c_str(), 1024, -0.5,1023.5, 200, -0.045, 0.045); 
+            _time_minwaveform[pixid]->SetCanExtend(TH1::kAllAxes);
+            
             // raw signal at each sample (in Volts)
             title = _dutname+" ["+_boardname+"] CH:"+d_ch_col_row[1]+" Signal  (Col:"
                 +std::to_string(col)+",Row:"+std::to_string(row)+")";
             hname = "h_signal_"+_boardname+"_"+_dutname+"_"+std::to_string(pixid);
             _signal[pixid] = new TH1F(hname.c_str(), title.c_str(), 1000, -0.3, 0.3); 
             _signal[pixid]->SetCanExtend(TH1::kAllAxes);
+            
+            // just the minimum of each sample (in Volts)
+            title = _dutname+" ["+_boardname+"] CH:"+d_ch_col_row[1]+" Min. Signal  (Col:"
+                +std::to_string(col)+",Row:"+std::to_string(row)+")";
+            hname = "h_minsignal_"+_boardname+"_"+_dutname+"_"+std::to_string(pixid);
+            _minsignal[pixid] = new TH1F(hname.c_str(), title.c_str(), 1000, -0.3, 0.3); 
+            _minsignal[pixid]->SetCanExtend(TH1::kAllAxes);
             
             // baseline per event (in Volts)
             title = _dutname+" ["+_boardname+"] CH:"+d_ch_col_row[1]+" Baseline  (Col:"
@@ -142,6 +157,33 @@ void TimingHitmapHistos::Fill(const SimpleStandardHit &hit) {
     // Some quick calculations:
     auto baseline_amplitude = getBaselineAndAmplitude(hit.getWaveform());
     _baseline[pixid]->Fill(baseline_amplitude.first);
+
+    // Time vs. minimum value of the waveform
+    //auto min_wf = std::min_element(hit.getWaveform().begin(), hit.getWaveform().end());
+    double min_wf = 1e9;    
+    int index_min = -1;
+    //int index_min_out_edges = -1;
+    //bool needed_recalculate = false;
+    for(size_t _i = 0; _i < wf.size(); ++_i)
+    {
+        if( wf[_i] < min_wf ) {
+            index_min = _i;
+            min_wf = wf[_i];
+            // Just recalculate the min if is at the beginning or end of the Waveform
+            /*if( index_min < 200 || (1024 - index_min < 200) ) {
+                needed_recalculate = true; 
+                min_wf = 1e9; 
+            }
+            else {
+                if( needed_recalculate ) {
+                    
+                }
+            }*/
+        }
+    }
+    //_time_minwaveform[pixid]->Fill(t[index_min], min_wf);
+    _time_minwaveform[pixid]->Fill(index_min, min_wf);
+    _minsignal[pixid]->Fill(min_wf);
     
     // Only fill if the amplitude evaluation gets a 3-sigma (from baseline) signal
     if(std::fabs(baseline_amplitude.second) > 0) {
@@ -166,8 +208,14 @@ void TimingHitmapHistos::Reset() {
     for(auto & id_hwf: _waveforms) {
         id_hwf.second->Reset();
     }
+    for(auto & id_hwf: _time_minwaveform) {
+        id_hwf.second->Reset();
+    }
     for(auto & id_hwf: _waveforms_not_filtered) {
         id_hwf.second->Reset();
+    }
+    for(auto & id_hamp: _minsignal) {
+        id_hamp.second->Reset();
     }
     for(auto & id_hamp: _amplitude) {
         id_hamp.second->Reset();
@@ -193,8 +241,14 @@ void TimingHitmapHistos::Write() {
     for(auto & id_hwf: _waveforms) {
         id_hwf.second->Write();
     }
+    for(auto & id_hwf: _time_minwaveform) {
+        id_hwf.second->Write();
+    }
     for(auto & id_hwf: _waveforms_not_filtered) {
         id_hwf.second->Write();
+    }
+    for(auto & id_hamp: _minsignal) {
+        id_hamp.second->Write();
     }
     for(auto & id_hamp: _amplitude) {
         id_hamp.second->Write();
