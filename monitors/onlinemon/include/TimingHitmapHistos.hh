@@ -37,12 +37,14 @@ class TimingHitmapHistos {
         TH2I *_occupancy_map;
         TH2I *_channel_map;
         std::map<int, TH1F*> _signal;
+        std::map<int, TH1F*> _minsignal;
         std::map<int, TH1F*> _amplitude;
         std::map<int, TH1F*> _baseline;
         // TH1F* _toa;
         // ???
         std::map<int,TH1F*> _waveforms;
         std::map<int,TH2F*> _waveforms_not_filtered;
+        std::map<int,TH2F*> _time_minwaveform;
     
     public:
         TimingHitmapHistos(SimpleStandardPlane p, RootMonitor *mon);
@@ -59,11 +61,13 @@ class TimingHitmapHistos {
         TH2I* GetChannelmapHisto() { return _channel_map; }
         TH1F* GetAmplitudemapHisto(unsigned int pixel_id) { return _amplitude[pixel_id]; }
         TH1F* GetSignalmapHisto(unsigned int pixel_id) { return _signal[pixel_id]; }
+        TH1F* GetMinSignalmapHisto(unsigned int pixel_id) { return _minsignal[pixel_id]; }
         TH1F* GetBaselineHisto(unsigned int pixel_id) { return _baseline[pixel_id]; }
         // Per pixel
         //TH2F * getWaveformHisto(unsigned int pixel_id) { return _waveforms[pixel_id]; }
         TH1F * getWaveformHisto(unsigned int pixel_id) { return _waveforms[pixel_id]; }
         TH2F * getUnfilteredWaveformHisto(unsigned int pixel_id) { return _waveforms_not_filtered[pixel_id]; }
+        TH2F * getTimeMinWaveformHisto(unsigned int pixel_id) { return _time_minwaveform[pixel_id]; }
         
         void setRootMonitor(RootMonitor *mon) { _mon = mon; }
 

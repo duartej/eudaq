@@ -28,7 +28,7 @@ HitmapHistos::HitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
     is_APIX = true;
   } else if (_sensor == std::string("RD53A")) {
     is_RD53A = true;
-  } else if (_sensor == std::string("RD53B")) {
+  } else if (_sensor == std::string("RD53B") || _sensor == std::string("CMSIT")) {
     is_RD53B = true;
   } else if (_sensor == std::string("RD53BQUAD")) {
     is_RD53BQUAD = true;
