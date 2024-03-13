@@ -114,9 +114,11 @@ bool CMSITConverterPlugin::Converting(EventSPC ev, StandardEventSP sev, Configur
         // # Check if dataformat and encoder versions are the same #
         // #########################################################
         if(stoi(ev->GetTag("Dataformat version")) != CMSITEventData::DataFormatVersion)
-            throw std::runtime_error("[EUDAQ::CMSITConverterPlugin::Converting] ERROR: version mismatch between dataformat " + ev->GetTag("Dataformat version") + " and encoder " +
-                                     std::to_string(CMSITEventData::DataFormatVersion));
-        return true;
+        {
+            throw std::runtime_error("[EUDAQ::CMSITConverterPlugin::Converting] ERROR: version mismatch between dataformat " 
+                    + ev->GetTag("Dataformat version") + " and encoder " +
+                    std::to_string(CMSITEventData::DataFormatVersion));
+        }
     }
 
     if(ev->IsEORE() == true) return true;
