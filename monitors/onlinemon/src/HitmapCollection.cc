@@ -115,6 +115,7 @@ HitmapHistos *HitmapCollection::getHitmapHistos(std::string sensor, int id) {
 
 void HitmapCollection::registerPlane(const SimpleStandardPlane &p) {
   HitmapHistos *tmphisto = new HitmapHistos(p, _mon);
+
   _map[p] = tmphisto;
   if (_mon != NULL) {
     if (_mon->getOnlineMon() == NULL) {

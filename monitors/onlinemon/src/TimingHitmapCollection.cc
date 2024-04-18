@@ -170,6 +170,13 @@ void TimingHitmapCollection::registerPlane(const SimpleStandardPlane &p) {
             _mon->getOnlineMon()->registerHisto(histoname,
                     getTimingHitmapHistos(sensor,sensor_id)->GetSignalmapHisto(pixid));
             _mon->getOnlineMon()->makeTreeItemSummary(sensor+"/"+dutname+"/Signal");
+            // Waveform minimum value
+            histoname = sensor+"/"+dutname+"/MinumumSignal/Pixel " + 
+                std::to_string(col) + "," + std::to_string(row);
+            _mon->getOnlineMon()->registerTreeItem(histoname);
+            _mon->getOnlineMon()->registerHisto(histoname,
+                    getTimingHitmapHistos(sensor,sensor_id)->GetMinSignalmapHisto(pixid));
+            _mon->getOnlineMon()->makeTreeItemSummary(sensor+"/"+dutname+"/MinimumSignal");
             // Some estimations
             histoname = sensor+"/"+dutname+"/Baseline/Pixel " + 
                 std::to_string(col) + "," + std::to_string(row);
@@ -199,6 +206,14 @@ void TimingHitmapCollection::registerPlane(const SimpleStandardPlane &p) {
             _mon->getOnlineMon()->registerHisto(histoname,
                     getTimingHitmapHistos(sensor,sensor_id)->getWaveformHisto(pixid), 
                     "HISTL PMC LMC", 0);
+            _mon->getOnlineMon()->makeTreeItemSummary(sensor+"/"+dutname+"/Waveforms");            
+            // Time vs. Min value of the Waveform, one per channel/pixel
+            histoname = sensor+"/"+dutname+"/TimeMinWf/Pixel " + 
+                std::to_string(col) + "," + std::to_string(row);
+            _mon->getOnlineMon()->registerTreeItem(histoname);
+            _mon->getOnlineMon()->registerHisto(histoname,
+                    getTimingHitmapHistos(sensor,sensor_id)->getTimeMinWaveformHisto(pixid), 
+                    "COLZ", 0);
             _mon->getOnlineMon()->makeTreeItemSummary(sensor+"/"+dutname+"/Waveforms");            
         }
     }

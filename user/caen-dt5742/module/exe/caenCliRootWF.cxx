@@ -343,6 +343,8 @@ int main(int /*argc*/, const char **argv)
             std::cerr << "Received null event" << std::endl;
             break;
         }
+        
+        event_number = ev->GetEventN();
 
         for(const auto & subevt: ev->GetSubEvents())
         {
@@ -428,7 +430,6 @@ int main(int /*argc*/, const char **argv)
             delete volt;
         }
         ++counter;
-        event_number = ev->GetEventN();
         if(event_number % 1000 == 0) 
         {
             std::cout << "Processed event: " << event_number << std::endl;
