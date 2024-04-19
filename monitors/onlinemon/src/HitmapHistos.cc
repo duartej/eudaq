@@ -17,7 +17,7 @@ HitmapHistos::HitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
       _clusterYWidth(NULL), _nbadHits(NULL), _nHotPixels(NULL),
       _hitmapSections(NULL), is_MIMOSA26(false), is_APIX(false),
       is_USBPIX(false), is_USBPIXI4(false), is_RD53A(false), is_RD53B(false), is_RD53BQUAD(false),
-      is_CAENDT5742(false) {
+      is_CAENDT5742(false), is_ETROC(false) {
   char out[1024], out2[1024];
 
   _mon = mon;
@@ -34,6 +34,8 @@ HitmapHistos::HitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
     is_RD53BQUAD = true;
   } else if (_sensor.find("CAEN") != std::string::npos) {
     is_CAENDT5742 = true;
+  } else if (_sensor == std::string("ETROC") != std::string::npos) {
+    is_ETROC = true;  
   } else if ((_sensor == std::string("USBPIX")) || (_sensor.find("USBPIXI-") != std::string::npos)) {
     is_USBPIX = true;
   } else if ((_sensor == std::string("USBPIXI4")) || (_sensor.find("USBPIXI4-") == std::string::npos)) {
@@ -154,7 +156,7 @@ HitmapHistos::HitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
     sprintf(out2, "h_hitmapSections_%s_%i", _sensor.c_str(), _id);
     _hitmapSections = new TH1I(out2, out, mimosa26_max_section, _id, _id + 1);
     
-    //  Timing -- Only for CAEN
+    //  Timing -- Only for CAEN 
     if( is_CAENDT5742 ) {
         for(unsigned int col = 0; col < _maxX; ++col) {
             for(unsigned int row = 0; row < _maxY; ++row) {
