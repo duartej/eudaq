@@ -129,6 +129,7 @@ private:
   bool is_RD53B;
   bool is_RD53BQUAD;
   bool is_CAENDT5742;
+  bool is_ETROC;
 };
 
 #ifdef __CINT__
