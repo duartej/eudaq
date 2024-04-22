@@ -39,6 +39,7 @@ std::vector<uint32_t> GetBack_32bWord(const std::vector<uint8_t>& binary_data) {
 
 bool ETROCRawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdEventSP d2, eudaq::ConfigSPC conf) const {
 
+std::cout << "+++++++++++++++++++++++++ " << std::endl;
     auto ev = std::dynamic_pointer_cast<const eudaq::RawEvent>(d1);
     size_t nblocks= ev->NumBlocks();
     auto block_n_list = ev->GetBlockNumList();
@@ -47,11 +48,13 @@ bool ETROCRawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdE
         std::vector<uint8_t> data_block_uint8 = ev->GetBlock(block_n);
         // Convert back into 32bits words 
         std::vector<uint32_t> raw_data = GetBack_32bWord(data_block_uint8);
-/*for(const uint32_t & kk: raw_data) 
+std::cout << "Event: " << ev->GetEventNumber() << std::endl;
+for(const uint32_t & kk: raw_data) 
 {
-    std::cout << "[0x" << std::setw(8) << std::setfill('0') << std::hex << kk << "]" << std::endl; 
+    std::cout <<  "[0x" << std::setw(8) << std::setfill('0') << std::hex << kk << "]" << std::endl; 
 }
-std::cout << std::dec;*/
+std::cout << std::dec;
+std::cout << "A -- Number of 32b data: " << raw_data.size() << std::endl;
 
 //std::cout << "DECODE" << std::endl;
         // Event Header 32bx2 = 64b
@@ -64,6 +67,7 @@ std::cout << std::dec;*/
                 << "Event Header" << std::endl;
             return false;
         }
+std::cout << "B" << std::endl;
         const uint16_t data_mask = raw_data[0] & 0xF;
         // The second 32b word;
         const uint16_t event_number = (raw_data[1] >> 16) & 0xFFFF;
@@ -71,6 +75,8 @@ std::cout << std::dec;*/
         const uint16_t event_type = (raw_data[1] >> 28) & 0x3;
         const uint16_t version = raw_data[1] & 0xF;
 
+std::cout << "C -- event number:" << event_number << ", event type:" << event_type 
+    << ", version:" << version << std::endl;
         // FIXME --- XXX
         // And the last word is the trailer
         //int trailer_event = raw_data[raw_data.size()-1];
@@ -84,6 +90,7 @@ std::cout << std::dec;*/
         //const uint16_t etroc_id = trailer_event >> 17
         // XXX -- PROV -- No es aqui!!! Es del frame trailer notdel evnt trailer!
         const uint16_t etroc_id = 0;
+std::cout << "D" << std::endl;
         
 /*std::cout << "data mask:" << data_mask 
     << ", data_words: " << data_words
@@ -98,17 +105,14 @@ std::cout << std::dec;*/
         etroc_data_words.reserve(data_words);
         // First element with all zeros
         etroc_data_words.push_back(std::bitset<40>());
+std::cout << "E, data words segun el header :" << data_words << std::endl;
         
         // The counter for the 40 word bit
         int counter_40b = 39;
         // The i-esim 40 word 
         int element_40b = 0;
             
-        // FIXME --- TO Check data consistency
-        //const int data_words_32b = int((40 * etroc_data_words)/32);
-        //const int padding_bits = (40 * data_words) % 32;
-        // FIXME --- TO Check data consistency
-        
+std::cout << "F" << std::endl;
         // Run over the remaining raw data to extract all the data words
         for(int ir = 2; ir < raw_data.size(); ++ir) {
             // Auxiliary bitset for the 32b raw data
@@ -129,6 +133,13 @@ std::cout << std::dec;*/
                 counter_40b -= 1;
             }
         }
+        // FIXME --- TO Check data consistency
+        const int data_words_32b = int((40 * etroc_data_words.size())/32);
+        const int padding_bits = (40 * data_words) % 32;
+        // FIXME --- TO Check data consistency
+        
+std::cout << "G -- Consistency=> Data words 32b: " << data_words_32b 
+    << ", Number of padding bits: " << padding_bits <<  std::endl;
         
 /*for(const auto & data_chip: etroc_data_words)
 {
@@ -152,8 +163,11 @@ std::cout << "EA:" << ((data_chip.to_ulong() >> 37) & 0x3)
         std::vector<uint32_t> toas;
         std::vector<uint32_t> tots;
         std::vector<uint32_t> cals;
+std::cout << "H, Data Words size: " << etroc_data_words.size() 
+    <<  " , " << std::endl;
         // Looking at the data words ot extract hits
         for(auto & current_word_bitset: etroc_data_words) {
+std::cout << "      [0x" << current_word_bitset << "] " << std::endl;
             uint64_t current_word = current_word_bitset.to_ulong();
             // Look for data XXX -- FIXME What about the other data? 
             // [1b: 1][2b: EA][4b: COL][4b: ROW][10b: TOA][9b: TOT][10b: CAL]
@@ -161,6 +175,7 @@ std::cout << "EA:" << ((data_chip.to_ulong() >> 37) & 0x3)
             {
                 continue;
             }
+std::cout << "                H0" << std::endl;
             const uint32_t ea = (current_word >> 37) & 0x3;
             const uint32_t col = (current_word >> 33) & 0xf;
             const uint32_t row = (current_word >> 29) & 0xf;
@@ -183,6 +198,7 @@ std::cout << "EA:" << ((data_chip.to_ulong() >> 37) & 0x3)
         }
         d2->AddPlane(plane);
     }
+std::cout << "\nI" << std::endl;
 
     return true;
 }
