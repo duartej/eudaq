@@ -9,7 +9,7 @@
 
 static const uint32_t EVENT_HEADER_MASK = 0xFFFFFFF0;
 static const uint32_t EVENT_HEADER = 0xC3A3C3A;
-static const uint32_t EVENT_TRAILER = 0x2C;
+static const uint32_t EVENT_TRAILER = 0xB;
 
 class ETROCRawEvent2StdEventConverter: public eudaq::StdEventConverter {
     public:
@@ -58,8 +58,7 @@ std::cout << "A -- Number of 32b data: " << raw_data.size() << std::endl;
 
 //std::cout << "DECODE" << std::endl;
         // Event Header 32bx2 = 64b
-        // [ 28b: 3A3C3A ][4b: Data Mask][16b: Event Number][10b: Data Words][2b: Event type][4b: version]
-        //
+        // 1. [28b: 3A3C3A ][4b: Data Mask]
         // Check is the header
         if(( (raw_data[0] & EVENT_HEADER_MASK) >> 4 ) != EVENT_HEADER) {
             // FIXME -- ERROOR
@@ -70,13 +69,31 @@ std::cout << "A -- Number of 32b data: " << raw_data.size() << std::endl;
 std::cout << "B" << std::endl;
         const uint16_t data_mask = raw_data[0] & 0xF;
         // The second 32b word;
-        const uint16_t event_number = (raw_data[1] >> 16) & 0xFFFF;
-        const uint16_t data_words = (raw_data[1] >> 26) & 0x3FF;
-        const uint16_t event_type = (raw_data[1] >> 28) & 0x3;
-        const uint16_t version = raw_data[1] & 0xF;
+        // 2 [4b:firmware version][16b:event number[10b:data words][2b:event type]
+        const uint16_t firwmare_version = (raw_data[1] >> 28) & 0xF;
+        const uint16_t event_number = (raw_data[1] >> 12) & 0xFFFF;
+        const uint16_t data_words = (raw_data[1] >> 2) & 0x3FF;
+        const uint16_t event_type = raw_data[1] & 0x3;
 
 std::cout << "C -- event number:" << event_number << ", event type:" << event_type 
-    << ", version:" << version << std::endl;
+    << ", version:" << firwmare_version << ", data_mask:" << data_mask << std::endl;
+
+        // The last word is the trailer 32b
+        // [6b: b001011][12b:hits count][3b:Overflow count][3b:Hamming count][8b:CRC]
+        const auto trailer = raw_data[raw_data.size()-1];
+        // Malformed ?
+        if( ((trailer >> 26) & 0x3F) != EVENT_TRAILER ) {
+            std::cerr << "Potential corrupted data: not found event trailer" << std::endl;
+            return false;
+        }        
+        const uint16_t hits_count = (trailer >> 14) & 0xFFF;
+        const uint16_t overflow_count = (trailer >> 11) & 0x7;
+        const uint16_t hamming_count = (trailer >> 8) & 0x7;
+        const uint16_t crc = trailer & 0xFF;
+std::cout << "C1 -- hits count:" << hits_count << ", overflow:" << overflow_count
+    << ", hamming:" << hamming_count << ", crc:" << crc << std::endl;
+
+
         // FIXME --- XXX
         // And the last word is the trailer
         //int trailer_event = raw_data[raw_data.size()-1];
@@ -92,11 +109,6 @@ std::cout << "C -- event number:" << event_number << ", event type:" << event_ty
         const uint16_t etroc_id = 0;
 std::cout << "D" << std::endl;
         
-/*std::cout << "data mask:" << data_mask 
-    << ", data_words: " << data_words
-    << ", event-type: " << event_type
-    << ", version: " << version
-    << std::endl; */
         // DATA 40 x data_words + padding bits to create 32bit words
         // 40 x data_words / 32 = number of words
         // 40 x data_words % 32 = (8, 16 or 24 bits to pad)a
@@ -114,12 +126,12 @@ std::cout << "E, data words segun el header :" << data_words << std::endl;
             
 std::cout << "F" << std::endl;
         // Run over the remaining raw data to extract all the data words
-        for(int ir = 2; ir < raw_data.size(); ++ir) {
+        // except the event header (0,1) and the trailer (-1)
+        for(int ir = 2; ir < raw_data.size()-1; ++ir) {
             // Auxiliary bitset for the 32b raw data
-            std::bitset<32> aux_data(raw_data[2]);
+            std::bitset<32> aux_data(raw_data[ir]);
             for(int i = aux_data.size()-1; i >= 0; --i) {
                 etroc_data_words[element_40b][counter_40b] = aux_data[i];
-    //std::cout << aux_data[i] << " --" << etroc_data_words[element_40b][counter_40b] << std::endl;
                 // --- Reach the 40th bit in the word
                 if( counter_40b == 0 ) {
                     // Reset the bit counter
