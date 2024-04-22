@@ -127,7 +127,7 @@ std::cout << "E, data words segun el header :" << data_words << std::endl;
 std::cout << "F" << std::endl;
         // Run over the remaining raw data to extract all the data words
         // except the event header (0,1) and the trailer (-1)
-        for(int ir = 2; ir < raw_data.size()-1; ++ir) {
+        for(int ir = 2; ir < raw_data.size()-2; ++ir) {
             // Auxiliary bitset for the 32b raw data
             std::bitset<32> aux_data(raw_data[ir]);
             for(int i = aux_data.size()-1; i >= 0; --i) {
@@ -145,13 +145,8 @@ std::cout << "F" << std::endl;
                 counter_40b -= 1;
             }
         }
-        // FIXME --- TO Check data consistency
-        const int data_words_32b = int((40 * etroc_data_words.size())/32);
-        const int padding_bits = (40 * data_words) % 32;
-        // FIXME --- TO Check data consistency
         
-std::cout << "G -- Consistency=> Data words 32b: " << data_words_32b 
-    << ", Number of padding bits: " << padding_bits <<  std::endl;
+std::cout << "G -- aux_data vector(40b, bitset) size: " << etroc_data_words.size() << std::endl;
         
 /*for(const auto & data_chip: etroc_data_words)
 {
@@ -172,7 +167,7 @@ std::cout << "EA:" << ((data_chip.to_ulong() >> 37) & 0x3)
         std::vector<uint32_t> eas;
         std::vector<uint32_t> cols;
         std::vector<uint32_t> rows;
-        std::vector<uint32_t> toas;
+        std::vector<uint64_t> toas;
         std::vector<uint32_t> tots;
         std::vector<uint32_t> cals;
 std::cout << "H, Data Words size: " << etroc_data_words.size() 
@@ -187,27 +182,23 @@ std::cout << "      [0x" << current_word_bitset << "] " << std::endl;
             {
                 continue;
             }
-std::cout << "                H0" << std::endl;
-            const uint32_t ea = (current_word >> 37) & 0x3;
-            const uint32_t col = (current_word >> 33) & 0xf;
-            const uint32_t row = (current_word >> 29) & 0xf;
-            const uint32_t toa = (current_word >> 19) & 0x3ff;
-            const uint32_t tot = (current_word >> 10) & 0x1ff;
-            const uint32_t cal = current_word & 0x3ff;
-
-            eas.push_back(ea);
-            cols.push_back(col);
-            rows.push_back(row);
-            toas.push_back(toa);
-            tots.push_back(tot);
-            cals.push_back(tot);
+            eas.push_back( (current_word >> 37) & 0x3 );
+            cols.push_back( (current_word >> 33) & 0xf );
+            rows.push_back( (current_word >> 29) & 0xf );
+            toas.push_back( (current_word >> 19) & 0x3ff );
+            tots.push_back( (current_word >> 10) & 0x1ff );
+            cals.push_back( current_word & 0x3ff );
         }
         /// FIXME ---MISSING Mechanism for the etroc-id !!~!
         eudaq::StandardPlane plane(etroc_id, "ETROC", "ETROC");
         plane.SetSizeZS(16, 16, 0);
         for(size_t i = 0; i < eas.size(); ++i) {
+std::cout << "   COL: " << cols[i] << " ROW: "<< rows[i] 
+    << " TOT:" << tots[i] << " TOA:" << toas[i] << " CAL:" << cals[i] << std::endl;
             plane.PushPixel(cols[i],rows[i] , tots[i], toas[i]);
+std::cout << "   ==== > After push pixel: " << eas.size() <<  std::endl;
         }
+std::cout << "   ==== > Plane push_pixel " << std::endl;
         d2->AddPlane(plane);
     }
 std::cout << "\nI" << std::endl;
