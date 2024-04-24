@@ -73,7 +73,8 @@ bool ETROCRawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdE
         // --- XXX DEBUG --- REMOVE 
         std::cout << "B" << std::endl;
         // --- XXX DEBUG --- REMOVE 
-        const uint16_t data_mask = raw_data[0] & 0xF;
+        // The active ETROCs: [4b:[ch3][ch2][ch1][ch0]]
+        const uint16_t event_mask = raw_data[0] & 0xF;
         // The second 32b word;
         // 2 [4b:firmware version][16b:event number[10b:data words][2b:event type]
         const uint16_t firwmare_version = (raw_data[1] >> 28) & 0xF;
@@ -83,7 +84,7 @@ bool ETROCRawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdE
 
         // --- XXX DEBUG --- REMOVE 
         std::cout << "C -- event number:" << event_number << ", event type:" << event_type 
-            << ", version:" << firwmare_version << ", data_mask:" << data_mask << std::endl;
+            << ", version:" << firwmare_version << ", event_mask:" << event_mask << std::endl;
         // --- XXX DEBUG --- REMOVE 
 
         // The last word is the trailer 32b
@@ -102,6 +103,10 @@ bool ETROCRawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdE
         std::cout << "C1 -- hits count:" << hits_count << ", overflow:" << overflow_count
             << ", hamming:" << hamming_count << ", crc:" << crc << std::endl;
         // --- XXX DEBUG --- REMOVE 
+        //
+        // XXX -- FIXME -- Missing L1counter and BCID probably needed to monitor
+        //                 Also, the ETROC (channel Id), is this info in the frame header? or
+        //                 in the frame trailer?
 
 
         //const uint16_t etroc_id = trailer_event >> 17
@@ -174,7 +179,13 @@ bool ETROCRawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdE
             std::cout << "      [0x" << current_word_bitset << "] " << std::endl;
             // --- XXX DEBUG --- REMOVE 
             uint64_t current_word = current_word_bitset.to_ulong();
-            // Look for data XXX -- FIXME What about the other data? 
+            // XXX -- What about?
+            // XXX -- FRAME HEADER? 
+            // [1b:0][15b:0x3c5c][2b00][8b:L1Counter][2b:Type][12b:BCID]
+            // XXX -- And FRAME TRAILER? 
+            // [1b:0][17b:ChipId][5b:Status][8B:hits][8b:CRC]
+
+            // Look for data XXX -- FIXME What about the other data? See above
             // [1b: 1][2b: EA][4b: COL][4b: ROW][10b: TOA][9b: TOT][10b: CAL]
             if( ((current_word >> 39) & 0x1) != 1 )
             {
