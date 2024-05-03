@@ -79,7 +79,11 @@ HitmapHistos::HitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
     if(p.is_RD53A || p.is_RD53B || p.is_RD53BQUAD) 
     {
        lvl1_bin = 32;
-     }
+    }
+    if(p.is_ETROC) 
+    {
+       lvl1_bin = 64;
+    }
     _lvl1Distr = new TH1I(out2, out, lvl1_bin, 0, lvl1_bin);
     SetHistoAxisLabelx(_lvl1Distr, "Lvl1 [25 ns]");
 
@@ -97,6 +101,8 @@ HitmapHistos::HitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
       _totSingle = new TH1I(out2, out, 16, 0, 15);
     } else if (p.is_DEPFET) {
       _totSingle = new TH1I(out2, out, 255, -127, 127);
+    } else if (p.is_ETROC) {
+      _totSingle = new TH1I(out2, out, 512, 0, 511);
     } else {
       _totSingle = new TH1I(out2, out, 256, 0, 255);
 #ifdef EUDAQ_LIB_ROOT6
@@ -266,9 +272,13 @@ void HitmapHistos::Fill(const SimpleStandardHit &hit) {
   int pixel_y = hit.getY();
 
   bool pixelIsHot = false;
-  if (_HotPixelMap->GetBinContent(pixel_x + 1, pixel_y + 1) >
-      _mon->mon_configdata.getHotpixelcut())
-    pixelIsHot = true;
+  // XXX Avoiding hot pixels, not well defined when wire-bonded,
+  // XXX Probably to remove this
+  if( ! is_ETROC ) {
+      if (_HotPixelMap->GetBinContent(pixel_x + 1, pixel_y + 1) >
+              _mon->mon_configdata.getHotpixelcut())
+          pixelIsHot = true;
+  }
 
   if (_hitmap != NULL && !pixelIsHot){
     _hitmap->Fill(pixel_x, pixel_y);
@@ -292,7 +302,7 @@ void HitmapHistos::Fill(const SimpleStandardHit &hit) {
   if ((pixel_x < _maxX) && (pixel_y < _maxY)) {
     plane_map_array[pixel_x][pixel_y] = plane_map_array[pixel_x][pixel_y] + 1;
   }
-  if ((is_APIX) || (is_USBPIX) || (is_USBPIXI4) || (is_DEPFET)|| is_RD53A || is_RD53B || is_RD53BQUAD) {
+  if ((is_APIX) || (is_USBPIX) || (is_USBPIXI4) || (is_DEPFET)|| is_RD53A || is_RD53B || is_RD53BQUAD || is_ETROC) {
     if (_totSingle != NULL)
       _totSingle->Fill(hit.getTOT());
     if (_lvl1Distr != NULL)
