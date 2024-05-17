@@ -87,9 +87,9 @@ bool ETROCRawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdE
         const uint16_t event_type = raw_data[1] & 0x3;
 
         // --- XXX DEBUG --- REMOVE 
-        //*
+        /*
 	std::cout << "EH -- event number:" << event_number << ", event type:" << event_type 
-            << ", version:" << firwmare_version << ", event_mask:" << event_mask << std::endl;
+            << ", version:" << firwmare_version << ", event_mask:" << event_mask << std::endl;*/
         // --- XXX DEBUG --- REMOVE 
 
         // The last word is the trailer 32b
@@ -157,11 +157,6 @@ bool ETROCRawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdE
 	// ETROCs attached to a FPGA boards are going to send all the events in order 
         uint16_t chip_id = 0;
 
-        // --- XXX DEBUG --- REMOVE 
-        //std::cout << "G -- aux_data vector(40b, bitset) size: " << etroc_data_words.size() 
-        //    << std::endl;
-        // --- XXX DEBUG --- REMOVE 
-        
         // FIXME ----> GET THE CHIP!! (channel) !!! FIXME -----
 	std::map<uint16_t, std::vector<uint32_t> > eas;
 	std::map<uint16_t, std::vector<uint32_t> > cols;
@@ -171,50 +166,50 @@ bool ETROCRawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdE
         std::map<uint16_t, std::vector<uint32_t> > cals;
         std::map<uint16_t, std::vector<uint32_t> > l1counter;
         // --- XXX DEBUG --- REMOVE 
-        //std::cout << "H, Data Words size: " << etroc_data_words.size() 
+        //std::cout << "H, 40bits Data Words size: " << etroc_data_words.size() << std::endl;
         //    <<  " , " << std::endl;
         // --- XXX DEBUG --- REMOVE 
         // Looking at the data words ot extract hits
         uint32_t current_l1counter = 0;
         for(auto & current_word_bitset: etroc_data_words) {
             // --- XXX DEBUG --- REMOVE 
-            //std::cout << "      [0x" << current_word_bitset << "] " << std::endl;
+            /*
+            std::cout << "      [0b" << current_word_bitset << "] " << std::endl;
+            std::cout << "      [0x" << std::setw(10) << std::setfill('0') << std::hex 
+                << current_word_bitset.to_ulong() << "]" << std::endl; 
+            std::cout << std::dec;*/
             // --- XXX DEBUG --- REMOVE 
             uint64_t current_word = current_word_bitset.to_ulong();
             // XXX -- FRAME HEADER or FRAME FILLER
             // [1b:0][15b:0x3c5c][2bYY][XXXXXX]
-            if( ((current_word >> 24) & CHIP_HEADER_MASK) == CHIP_HEADER )
-            {
+            if( ((current_word >> 24) & CHIP_HEADER_MASK) == CHIP_HEADER ) {
 		// Either is a Frame header [2bYY = 2b00]  or a filler header [2bYY = 2b10]
-		if( (current_word >> 22) & 0x3 == 0x0 ) 
-		{
+		if( ((current_word >> 22) & 0x3) == 0x0 ) {
                     // FRAME HEADER 
 		    // [1b:0][15b:0x3c5c][2b00][8b:L1Counter][2b:Type][12b:BCID]
                     current_l1counter = (((current_word) >> 20 ) & 0xFF) ;
-                    //*
+                    /*
 		    std::cout << "   ---| FH (CHIP HEADER) " 
                        << "L1Counter: " << current_l1counter << ", "  
                        << "Type: " << (((current_word) >> 12 ) & 0x3)  << ", "
                        << "BCID: " << ((current_word) & 0xFFF)  
-                       << std::endl;
+                       << std::endl;*/
                     continue;
 		}
-		else
-		{
+		else {
                     // FRAME FILLER
-		    // [1b:0][15b:0x3c5c][2b00][8b:RT_L1Counter][2b:EBS][12b:RT_BCID]
+		    // [1b:0][15b:0x3c5c][2b10][8b:RT_L1Counter][2b:EBS][12b:RT_BCID]
                     current_l1counter = (((current_word) >> 20 ) & 0xFF) ;
-                    //*
+                    /*
 		    std::cout << "   ---| Frame FILLER " 
                        << "L1Counter: " << current_l1counter << ", "  
                        << "Type: " << (((current_word) >> 12 ) & 0x3)  << ", "
                        << "BCID: " << ((current_word) & 0xFFF)  
-                       << std::endl;
+                       << std::endl;*/
 		    continue;
 		}
             }
-            else if( ((current_word >> 39) & 0x1) == 1 )
-            {
+            else if( ((current_word >> 39) & 0x1) == 1 ) {
                 // Look for data XXX -- FIXME What about the other data? See above
                 // [1b: 1][2b: EA][4b: COL][4b: ROW][10b: TOA][9b: TOT][10b: CAL]
                 eas[chip_id].push_back( (current_word >> 37) & 0x3 );
@@ -224,52 +219,52 @@ bool ETROCRawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdE
                 tots[chip_id].push_back( (current_word >> 10) & 0x1ff );
                 cals[chip_id].push_back( current_word & 0x3ff );
                 l1counter[chip_id].push_back( current_l1counter );
-		//*
-		size_t ci = cols.size()-1;
+		/*
+		size_t ci = cols[chip_id].size()-1;
             	std::cout << "   +++[DATA] COL: " << cols[chip_id][ci] << " ROW: "<< rows[chip_id][ci] 
-			<< " TOT:" << tots[chip_id][ci] << " TOA:" << toas[chip_id][ci] << " CAL:" << cals[chip_id][ci] << std::endl;
+			<< " TOT:" << tots[chip_id][ci] << " TOA:" << toas[chip_id][ci] << " CAL:" << cals[chip_id][ci] << std::endl;*/
             // --- XXX DEBUG --- REMOVE 
             }
-            else 
-            {
+            else {
                 // XXX DEBUG --- REMOVE?
                 // XXX -- And FRAME TRAILER?  Any ohter else
                 // [1b:0][17b:ChipId][6b:Status][8B:hits][8b:CRC]
 
-                //*
+                /*
 		std::cout << "   ---| FT (CHIP TRAILER) " 
                     << "ChipID: " << (((current_word) >> 22 ) & 0x1FFFF)  << ", "
                     << "STATuS:" << (((current_word) >> 16 ) & 0x3F)  << ", "
                     << "Hits: " << (((current_word) >> 8) & 0xFF) << ", "
                     << "CRC: " << ((current_word) & 0xFF) << ", "
-                    << std::endl;
-		chip_id++;
+                    << std::endl;*/
                 // XXX DEBUG --- REMOVE
+		chip_id++;
                 continue;
             }
         }
 	
-	for(const auto & chipid_tots: tots)
-	{
+	for(const auto & chipid_tots: tots) {
 	    const uint16_t etroc_id = chipid_tots.first;
             eudaq::StandardPlane plane(etroc_id, "ETROC", "ETROC");
             // col, rows, npixels?, frames (l1)
-            plane.SetSizeZS(16, 16, 0, 256);
+            plane.SetSizeZS(16, 16, 0, 1);
+            //plane.SetSizeZS(16, 16, 0, 3, --< Not needed, probably with 3 is enough 
+            //        StandardPlane::FLAG_DIFFCOORDS | StandardPlane::FLAG_ACCUMULATE );
             for(size_t i = 0; i < eas[etroc_id].size(); ++i) {
-                // --- XXX DEBUG --- REMOVE 
                 // XXX --- IT doens't work using the frame... why??
 	        // l1counter should be there because data is therea
                 // plane.PushPixel(cols[i],rows[i] , tots[i], toas[i], false, l1counter[i]);
-                plane.PushPixel(cols[etroc_id][i],rows[etroc_id][i] , tots[etroc_id][i], toas[etroc_id][i]);
+                plane.PushPixel(cols[etroc_id][i],rows[etroc_id][i] , tots[etroc_id][i], uint32_t(0));
+                plane.SetPixelAuxInfo(i, "TOA"+std::to_string(toas[etroc_id][i])+":CAL"+std::to_string(cals[etroc_id][i])+);
             }
             d2->AddPlane(plane);
 	}
         // --- XXX DEBUG --- REMOVE 
-	//* 
+	/* 
         std::cout << "ET -- hits count:" << hits_count << ", overflow:" << overflow_count
             << ", hamming:" << hamming_count << ", crc:" << crc << std::endl;
         std::cout << "|=====================================================================" 
-		<< "==========================|" << std::endl;
+		<< "==========================|" << std::endl;*/
         // --- XXX DEBUG --- REMOVE 
         //
     }
