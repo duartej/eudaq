@@ -255,7 +255,7 @@ bool ETROCRawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdE
 	        // l1counter should be there because data is therea
                 // plane.PushPixel(cols[i],rows[i] , tots[i], toas[i], false, l1counter[i]);
                 plane.PushPixel(cols[etroc_id][i],rows[etroc_id][i] , tots[etroc_id][i], uint32_t(0));
-                plane.SetPixelAuxInfo(i, "TOA"+std::to_string(toas[etroc_id][i])+":CAL"+std::to_string(cals[etroc_id][i])+);
+                plane.SetPixelAuxInfo(i, "TOA"+std::to_string(toas[etroc_id][i])+":CAL"+std::to_string(cals[etroc_id][i]));
             }
             d2->AddPlane(plane);
 	}
