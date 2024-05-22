@@ -191,6 +191,31 @@ void HitmapCollection::registerPlane(const SimpleStandardPlane &p) {
       _mon->getOnlineMon()->registerHisto(
           tree,
           getHitmapHistos(p.getName(), p.getID())->getClusterWidthYHisto());
+      if(p.is_ETROC) {
+          sprintf(tree, "%s/Sensor %i/Cal", p.getName().c_str(), p.getID());
+          _mon->getOnlineMon()->registerTreeItem(tree);
+          _mon->getOnlineMon()->registerHisto(
+                  tree, getHitmapHistos(p.getName(), p.getID())->getCalHisto());
+          sprintf(tree, "%s/Sensor %i/TOACode", p.getName().c_str(), p.getID());
+          _mon->getOnlineMon()->registerTreeItem(tree);
+          _mon->getOnlineMon()->registerHisto(
+                  tree, getHitmapHistos(p.getName(), p.getID())->getTOACodeHisto());
+          
+          sprintf(tree, "%s/Sensor %i/TOA", p.getName().c_str(), p.getID());
+          _mon->getOnlineMon()->registerTreeItem(tree);
+          _mon->getOnlineMon()->registerHisto(
+                  tree, getHitmapHistos(p.getName(), p.getID())->getTOACalHisto());
+          
+          sprintf(tree, "%s/Sensor %i/TOTCal", p.getName().c_str(), p.getID());
+          _mon->getOnlineMon()->registerTreeItem(tree);
+          _mon->getOnlineMon()->registerHisto(
+                  tree, getHitmapHistos(p.getName(), p.getID())->getTOTCalHisto());
+          
+          sprintf(tree, "%s/Sensor %i/TOTvsTOA", p.getName().c_str(), p.getID());
+          _mon->getOnlineMon()->registerTreeItem(tree);
+          _mon->getOnlineMon()->registerHisto(
+                  tree, getHitmapHistos(p.getName(), p.getID())->getTOTvsTOACalHisto(),"COLZ",1);
+      }
     }
     if (p.is_DEPFET) {
       sprintf(tree, "%s/Sensor %i/SingleTOT", p.getName().c_str(), p.getID());
@@ -252,7 +277,6 @@ void HitmapCollection::registerPlane(const SimpleStandardPlane &p) {
         sprintf(tree, "%s/Sensor %i/Waveforms", p.getName().c_str(), p.getID());
         _mon->getOnlineMon()->makeTreeItemSummary(tree);
     }
-
 
     if (p.is_MIMOSA26) {
       char mytree[4][1024]; // holds the number of histogramms for each section,

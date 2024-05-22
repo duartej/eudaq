@@ -177,6 +177,30 @@ HitmapHistos::HitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
             }
         }
     }
+    //  TOA and Cal -- Only for ETROC
+    if( is_ETROC ) {
+        sprintf(out, "%s %i TOA CODE", _sensor.c_str(), _id);
+        sprintf(out2, "h_toacode_%s_%i", _sensor.c_str(), _id);
+        // 10b -> 1024 
+        _toa_code = new TH1F(out2, out, 1024, 0, 1023);
+
+        sprintf(out, "%s %i Time of Arrival;ToA [ns];Entries", _sensor.c_str(), _id);
+        sprintf(out2, "h_toa_%s_%i", _sensor.c_str(), _id);
+        _toa = new TH1F(out2, out, 1000, 0, 50); 
+
+        sprintf(out, "%s %i Time Over threshold;TOT [ns];Entries", _sensor.c_str(), _id);
+        sprintf(out2, "h_totcal_%s_%i", _sensor.c_str(), _id);
+        _tot_cal = new TH1F(out2, out, 1000, 0, 50);
+        
+        sprintf(out, "%s %i Time of Arrival vs ToT;ToA [ns];ToT [ns]", _sensor.c_str(), _id);
+        sprintf(out2, "h_tot_vs_toa_%s_%i", _sensor.c_str(), _id);
+        _tot_vs_toa = new TH2F(out2, out, 1000, 0, 50, 1000, 0, 50); 
+
+        sprintf(out, "%s %i Cal", _sensor.c_str(), _id);
+        sprintf(out2, "h_cal_%s_%i", _sensor.c_str(), _id);
+        // 10b -> 1024 
+        _cal = new TH1F(out2, out, 1024, 0, 1023);
+    }
 
     for (unsigned int section = 0; section < mimosa26_max_section; section++) {
       sprintf(out, "%i%c", _id, (section + 65));
@@ -322,6 +346,23 @@ void HitmapHistos::Fill(const SimpleStandardHit &hit) {
       const unsigned int pixid = pixel_x * _maxY + pixel_y;
       _waveforms[pixid]->FillN(wf.size(), &_s[0], &(hit.getWaveform()[0]), nullptr, 1);
   }
+  if( is_ETROC ) {
+      // TOA:CAL in the auxx info
+      const int toa_code = hit.getAuxInfoAs<int>(0);
+      _toa_code->Fill( toa_code );
+      const int cal_code = hit.getAuxInfoAs<int>(1);
+      _cal->Fill( cal_code );
+      // Calibration 
+      const float t3 = 3.125; // ns
+      // --> ETROC2 pag25 v0.43
+      const float tbin = t3/(cal_code+1); 
+      const float toa = tbin*toa_code;
+      const float totcal = (2*hit.getTOT() - floor(hit.getTOT()/32))*tbin;
+
+      _toa->Fill(toa);
+      _tot_cal->Fill(totcal);
+      _tot_vs_toa->Fill(toa, totcal);
+  }
   ++FILLED_WF;
 }
 
@@ -373,7 +414,7 @@ void HitmapHistos::Fill(const SimpleStandardCluster &cluster) {
     }
   }
 
-  if ((is_APIX) || (is_USBPIX) || (is_USBPIXI4)|| is_RD53A || is_RD53B || is_RD53BQUAD) {
+  if ((is_APIX) || (is_USBPIX) || (is_USBPIXI4)|| is_RD53A || is_RD53B || is_RD53BQUAD || is_ETROC) {
     if (_lvl1Width != NULL)
       _lvl1Width->Fill(cluster.getLVL1Width());
     if (_totCluster != NULL)

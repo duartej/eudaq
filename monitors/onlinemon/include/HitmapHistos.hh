@@ -53,7 +53,13 @@ protected:
   TH1I **_nClustersize_section;
   TH1I **_nHotPixels_section;
   // For timing 
+  TH1F *_toa_code;
+  TH1F *_toa;
+  TH1F *_tot_cal;
+  TH1F *_cal;
+  TH2F *_tot_vs_toa;
   std::map<int,TH2F*> _waveforms;
+
 
 public:
   HitmapHistos(SimpleStandardPlane p, RootMonitor *mon);
@@ -104,6 +110,12 @@ public:
   TH1I *getNHotPixelsHisto() { return _nHotPixels; }
   // Per pixel
   TH2F * getWaveformHisto(unsigned int pixel_id) { return _waveforms[pixel_id]; }
+  // ETORC
+  TH1F * getTOTCalHisto() { return _tot_cal; }
+  TH1F * getTOACodeHisto() { return _toa_code; }
+  TH1F * getTOACalHisto() { return _toa; }
+  TH1F * getCalHisto() { return _cal; }
+  TH2F * getTOTvsTOACalHisto() { return _tot_vs_toa; }
 
   void setRootMonitor(RootMonitor *mon) { _mon = mon; }
 
