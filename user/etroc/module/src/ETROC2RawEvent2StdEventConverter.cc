@@ -246,20 +246,23 @@ bool ETROCRawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdE
                 continue;
             }
         }
-	
-	for(const auto & chipid_tots: tots) {
-	    const uint16_t etroc_id = chipid_tots.first;
+
+        // Found (chip_id-1) ETROCs
+	for(uint16_t  etroc_id = 0; etroc_id < chip_id; ++etroc_id) {
             eudaq::StandardPlane plane(etroc_id, "ETROC", "ETROC");
             // col, rows, npixels?, frames (l1)
             plane.SetSizeZS(16, 16, 0, 1);
             //plane.SetSizeZS(16, 16, 0, 3, --< Not needed, probably with 3 is enough 
             //        StandardPlane::FLAG_DIFFCOORDS | StandardPlane::FLAG_ACCUMULATE );
-            for(size_t i = 0; i < eas[etroc_id].size(); ++i) {
-                // XXX --- IT doens't work using the frame... why??
-	        // l1counter should be there because data is therea
-                // plane.PushPixel(cols[i],rows[i] , tots[i], toas[i], false, l1counter[i]);
-                plane.PushPixel(cols[etroc_id][i],rows[etroc_id][i] , tots[etroc_id][i], uint32_t(0));
-                plane.SetPixelAuxInfo(i, "TOA"+std::to_string(toas[etroc_id][i])+":CAL"+std::to_string(cals[etroc_id][i])+);
+            if( eas.find(etroc_id) != eas.end() ) {
+                for(size_t i = 0; i < eas[etroc_id].size(); ++i) {
+                    // XXX --- IT doens't work using the frame... why??
+                    // l1counter should be there because data is therea
+                    // plane.PushPixel(cols[i],rows[i] , tots[i], toas[i], false, l1counter[i]);
+                    plane.PushPixel(cols[etroc_id][i],rows[etroc_id][i] , tots[etroc_id][i], uint32_t(0));
+                    // TOA_CODE:CAL_CODE
+                    plane.SetPixelAuxInfo(i, std::to_string(toas[etroc_id][i])+":"+std::to_string(cals[etroc_id][i]));
+                }
             }
             d2->AddPlane(plane);
 	}
