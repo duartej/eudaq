@@ -87,8 +87,13 @@ bool ETROCRawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdE
         const uint16_t event_type = raw_data[1] & 0x3;
 
         // --- XXX DEBUG --- REMOVE 
-        /*
-	std::cout << "EH -- event number:" << event_number << ", event type:" << event_type 
+        
+        if( (ev->GetEventNumber() == 0) && (event_number != 0) ) {
+            std::cerr << "[WARNING ETROC] not starting at 0 [ETROC EV:" << event_number 
+                << "]. Advised to re-start the run. " << std::endl;
+        }
+            
+	/*std::cout << "EH -- event number:" << event_number << ", event type:" << event_type 
             << ", version:" << firwmare_version << ", event_mask:" << event_mask << std::endl;*/
         // --- XXX DEBUG --- REMOVE 
 
@@ -157,7 +162,6 @@ bool ETROCRawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdE
 	// ETROCs attached to a FPGA boards are going to send all the events in order 
         uint16_t chip_id = 0;
 
-        // FIXME ----> GET THE CHIP!! (channel) !!! FIXME -----
 	std::map<uint16_t, std::vector<uint32_t> > eas;
 	std::map<uint16_t, std::vector<uint32_t> > cols;
         std::map<uint16_t, std::vector<uint32_t> > rows;
