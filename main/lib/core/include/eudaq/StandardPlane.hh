@@ -75,6 +75,8 @@ namespace eudaq {
     void SetPixelAuxInfo(uint32_t index, std::string aux_info, uint32_t frame = 0);
     std::string GetPixelAuxInfo(uint32_t index, uint32_t frame) const;
     std::string GetPixelAuxInfo(uint32_t index) const;
+    bool HasPixelAuxInfo(uint32_t index, uint32_t frame) const;
+    bool HasPixelAuxInfo(uint32_t index) const;
 
     void SetWaveform(uint32_t index, std::vector<double> waveform, double x0, double dx, uint32_t frame = 0);
     bool HasWaveform(uint32_t index, uint32_t frame) const;

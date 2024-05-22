@@ -48,6 +48,7 @@
 #include "eudaq/FileReader.hh"
 using namespace std;
 
+
 RootMonitor::RootMonitor(const std::string & runcontrol,
 			 int /*x*/, int /*y*/, int /*w*/, int /*h*/,
 			 const std::string & conffile, const std::string & monname)
@@ -227,6 +228,11 @@ void RootMonitor::DoReceive(eudaq::EventSP evsp) {
         SimpleStandardHit hit((int)plane.GetX(index,lvl1),(int)plane.GetY(index,lvl1));
         hit.setTOT((int)plane.GetPixel(index,lvl1)); //this stores the analog information if existent, else it stores 1
         hit.setLVL1(lvl1);
+        if( simpPlane.is_ETROC ) {
+            if( plane.HasPixelAuxInfo(index) ) {
+                hit.setAuxInfo(plane.GetPixelAuxInfo(index));
+            }
+        }
 
         if (simpPlane.getAnalogPixelType()){ //this is analog pixel, apply threshold
           //this should be moved into converter

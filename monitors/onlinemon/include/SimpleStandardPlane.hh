@@ -91,6 +91,7 @@ public:
   void setPixelType(std::string name);
   void setPixelAuxInfo(uint32_t index, const std::string & auxinfo) { _auxinfo[index] = auxinfo; }
   std::string getPixelAuxInfo(uint32_t index) const { return _auxinfo.at(index); }
+  bool hasPixelAuxInfo(uint32_t index) const { return _auxinfo.find(index) != _auxinfo.end(); }
   bool is_MIMOSA26;
   bool is_DEPFET;
   bool is_APIX;

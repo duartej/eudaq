@@ -191,6 +191,15 @@ namespace eudaq{
     SetupResult();
     return m_result_auxinfo->at(index);
   }
+  
+  bool StandardPlane::HasPixelAuxInfo(uint32_t index, uint32_t frame) const {
+    return index < m_auxinfo.at(frame).size();
+  }
+  
+  bool StandardPlane::HasPixelAuxInfo(uint32_t index) const {
+    SetupResult();
+    return index < m_result_auxinfo->size();
+  }
 
   bool StandardPlane::HasWaveform(uint32_t index, uint32_t frame) const {
     return !m_waveform.at(frame).at(index).empty();
