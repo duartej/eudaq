@@ -192,7 +192,7 @@ HitmapHistos::HitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
         sprintf(out2, "h_totcal_%s_%i", _sensor.c_str(), _id);
         _tot_cal = new TH1F(out2, out, 1000, 0, 50);
         
-        sprintf(out, "%s %i Time of Arrival vs ToT;ToA [ns];ToT [ns]", _sensor.c_str(), _id);
+        sprintf(out, "%s %i Time of Arrival vs ToT;ToT [ns];ToA [ns]", _sensor.c_str(), _id);
         sprintf(out2, "h_tot_vs_toa_%s_%i", _sensor.c_str(), _id);
         _tot_vs_toa = new TH2F(out2, out, 1000, 0, 50, 1000, 0, 50); 
 
@@ -361,7 +361,7 @@ void HitmapHistos::Fill(const SimpleStandardHit &hit) {
 
       _toa->Fill(toa);
       _tot_cal->Fill(totcal);
-      _tot_vs_toa->Fill(toa, totcal);
+      _tot_vs_toa->Fill(totcal, toa);
   }
   ++FILLED_WF;
 }
