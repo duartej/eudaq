@@ -58,7 +58,7 @@ TimingHitmapHistos::TimingHitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
             
             // Unfiltered
             title = _dutname+" ["+_boardname+"] CH:"+d_ch_col_row[1]+" (not-filtered) Waveforms  (Col:"
-                +std::to_string(col)+",Row:"+std::to_string(row)+")";
+                +std::to_string(col)+",Row:"+std::to_string(row)+");#Sample;V [mV];#Entries";
             hname = "h_unfiltered_waveform_"+_boardname+"_"+_dutname+"_"+std::to_string(pixid);
             // XXX -- HARDCODED!!  I need to extract it from config
             _waveforms_not_filtered[pixid] = new TH2F(hname.c_str(), title.c_str(), 1024, -0.5,1023.5, 200, -0.045, 0.045); 
@@ -66,7 +66,7 @@ TimingHitmapHistos::TimingHitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
             
             // Unfiltered
             title = _dutname+" ["+_boardname+"] CH:"+d_ch_col_row[1]+" (not-filtered) Waveforms  (Col:"
-                +std::to_string(col)+",Row:"+std::to_string(row)+")";
+                +std::to_string(col)+",Row:"+std::to_string(row)+");#Sample;V [mV];#Entries";
             hname = "h_timevsminwfm_"+_boardname+"_"+_dutname+"_"+std::to_string(pixid);
             // XXX -- HARDCODED!!  I need to extract it from config
             _time_minwaveform[pixid] = new TH2F(hname.c_str(), title.c_str(), 1024, -0.5,1023.5, 200, -0.045, 0.045); 
@@ -74,34 +74,34 @@ TimingHitmapHistos::TimingHitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
             
             // raw signal at each sample (in Volts)
             title = _dutname+" ["+_boardname+"] CH:"+d_ch_col_row[1]+" Signal  (Col:"
-                +std::to_string(col)+",Row:"+std::to_string(row)+")";
+                +std::to_string(col)+",Row:"+std::to_string(row)+";V [mV];Digitizer samples Entries";
             hname = "h_signal_"+_boardname+"_"+_dutname+"_"+std::to_string(pixid);
             _signal[pixid] = new TH1F(hname.c_str(), title.c_str(), 1000, -0.3, 0.3); 
             _signal[pixid]->SetCanExtend(TH1::kAllAxes);
             
             // just the minimum of each sample (in Volts)
             title = _dutname+" ["+_boardname+"] CH:"+d_ch_col_row[1]+" Min. Signal  (Col:"
-                +std::to_string(col)+",Row:"+std::to_string(row)+")";
+                +std::to_string(col)+",Row:"+std::to_string(row)+";V [mV];#Events";
             hname = "h_minsignal_"+_boardname+"_"+_dutname+"_"+std::to_string(pixid);
             _minsignal[pixid] = new TH1F(hname.c_str(), title.c_str(), 1000, -0.3, 0.3); 
             _minsignal[pixid]->SetCanExtend(TH1::kAllAxes);
             
             // baseline per event (in Volts)
             title = _dutname+" ["+_boardname+"] CH:"+d_ch_col_row[1]+" Baseline  (Col:"
-                +std::to_string(col)+",Row:"+std::to_string(row)+")";
+                +std::to_string(col)+",Row:"+std::to_string(row)+");V [mV];#Events";
             hname = "h_baseline_"+_boardname+"_"+_dutname+"_"+std::to_string(pixid);
             _baseline[pixid] = new TH1F(hname.c_str(), title.c_str(), 1000, -0.03, 0.03); 
             _baseline[pixid]->SetCanExtend(TH1::kAllAxes);
             
             // amplitude 
             title = _dutname+" ["+_boardname+"] CH:"+d_ch_col_row[1]+" Amplitude  (Col:"
-                +std::to_string(col)+",Row:"+std::to_string(row)+")";
+                +std::to_string(col)+",Row:"+std::to_string(row)+");V [mV];#Events";
             hname = "h_amplitude_"+_boardname+"_"+_dutname+"_"+std::to_string(pixid);
             _amplitude[pixid] = new TH1F(hname.c_str(), title.c_str(), 1000, -0.3, 0.3); 
             _amplitude[pixid]->SetCanExtend(TH1::kAllAxes);
             
             title = _dutname+" ["+_boardname+"] CH:"+d_ch_col_row[1]+" Waveforms  (Col:"
-                +std::to_string(col)+",Row:"+std::to_string(row)+")";
+                +std::to_string(col)+",Row:"+std::to_string(row)+");#Sample;V [mV];#Entries";
             hname = "h_waveform_"+_boardname+"_"+_dutname+"_"+std::to_string(pixid);
             // XXX -- HARDCODED!!  I need to extract it from config
             //_waveforms[pixid] = new TH2F(hname.c_str(), title.c_str(), 1024, -0.5,1023.5, 200, -0.045, 0.045); 
