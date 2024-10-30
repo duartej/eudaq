@@ -15,6 +15,8 @@
 #include <map>
 #include <vector>
 #include <regex>
+#include <functional>
+#include <stdexcept>
 
 
 using PixelMap = std::map<int, std::vector<std::array<int,2>> >;
@@ -102,6 +104,8 @@ class CAENDT5742Events
         // getters
         size_t get_samples_per_waveform() { return _n_samples_per_waveform; }
         size_t get_sampling_frequency_MHz() { return _sampling_frequency_MHz; }
+        float get_t0(int device_id) const { return _t0.at(device_id) ; }
+        float get_dt(int device_id) const { return _dt.at(device_id) ; }
         // 
         std::string get_producer_name(int device_id) const { return _name.at(device_id); }
 
@@ -251,13 +255,286 @@ std::vector<int> CAENDT5742Events::get_channel_list(int caen_board, const std::s
     return chlist;
 }
 
+// ROOTCreator -- Convert the relevant info into the root file
+class ROOTCreator 
+{
+    public:
+        ROOTCreator() = delete;
+        ROOTCreator(const std::string & outputfile, const std::string & split_condition, int max_for_condition);
+        ~ROOTCreator();
+        
+        void initialize_file();
+        void close_file();
+
+        void fill_BORE(CAENDT5742Events & caen, int run_number, int device_id);
+        void fill_event_waveforms(CAENDT5742Events & caen, 
+                const std::shared_ptr<eudaq::StandardEvent> & evstd,
+                int event_number, 
+                int device_id);
+        void use_split_condition();
+
+    private:
+        void _initialize_trees();
+
+        int _current_processed; 
+        int _file_counter;
+        
+        TFile * _root;
+        TTree * _wf_tree;
+        TTree * _header_tree;
+
+        std::string _outfile;
+        // Variable definition for the tree waveform filling
+        int _event_number;
+        std::string _current_producer;
+        std::vector<std::vector<Double_t>>* _volt;
+        // Variable definition for the header tree
+        bool _bore_filled;
+        std::vector<std::string>* _dutnames;
+        // channels map : the number of elements here defines the rest of the vectors
+        std::vector<std::vector<Double_t>>* _channels; 
+        int _run_number;
+        int _sampling_frequency_MHz;
+        int _n_samples_per_waveform;
+        // Initial time and dt
+        float _t0;
+        float _dt;
+        // -- Functional for splitting
+        std::function<bool(void)> _split_condition;
+        int _max_condition;
+};
+
+ROOTCreator::ROOTCreator(const std::string & outputfile, const std::string & split_condition, int max_condition) :
+    _current_processed(-1),
+    _file_counter(0),
+    _root(nullptr), 
+    _wf_tree(nullptr), 
+    _header_tree(nullptr), 
+    _outfile(outputfile),
+    _event_number(-1),
+    _current_producer(""),
+    _volt(nullptr),
+    _bore_filled(false),
+    _dutnames(nullptr),
+    _run_number(-1),
+    _sampling_frequency_MHz(-1),
+    _n_samples_per_waveform(-1),
+    _t0(-1),
+    _dt(-1),
+    _max_condition(max_condition)
+{ 
+    // Definition of the condition to split
+    if( split_condition == "" )
+    {
+        // No splitting at all
+        _split_condition = []() -> bool { return false; };
+    }
+    else if( split_condition == "size" )
+    {
+        // Splitting by root size (in GB)
+        _split_condition = [&]() { return (_root->GetSize() / (1024 * 1024 * 1024)) > _max_condition ; };
+    }
+    else if( split_condition == "events" )
+    {
+        // Splitting by number of events
+        _split_condition = [&]() { return (_current_processed > _max_condition) ; };
+    }
+    else
+    {
+        std::string msg("Invalid split condition '"+split_condition+
+                "'. Valid : \"\", \"size\", \"events\"");
+        throw std::runtime_error(msg);
+    }
+}
+
+ROOTCreator::~ROOTCreator()
+{
+    // Clear metadata vectors
+    if( _dutnames != nullptr )
+    {
+        delete _dutnames;
+        _dutnames = nullptr;
+    }
+    if( _channels != nullptr )
+    {
+        delete _channels;
+        _channels = nullptr;
+    }
+}
+
+void ROOTCreator::_initialize_trees()
+{
+    // Free memory
+    if( _wf_tree != nullptr ) 
+    {
+        _wf_tree = nullptr;
+    }
+    
+    if( _header_tree != nullptr )
+    {
+        _header_tree = nullptr;
+    }
+
+    // -- Initilaze trees
+    // Waveform branch
+    _wf_tree = new TTree("Waveforms","Waveforms from eudaq raw file");
+
+    // Branches creation
+    _wf_tree->Branch("event", &_event_number);
+    _wf_tree->Branch("producer", &_current_producer);
+    _wf_tree->Branch("voltages", &_volt);
+    
+    // Header tree with topology info
+    _header_tree = new TTree("Metadata","Useful info");
+    // Branches creation
+    _header_tree->Branch("run_number",&_run_number);
+    _header_tree->Branch("sampling_frequency_MHz",&_sampling_frequency_MHz);
+    _header_tree->Branch("samples_per_waveform",&_n_samples_per_waveform);
+    _header_tree->Branch("t0",&_t0);
+    _header_tree->Branch("dt",&_dt);
+    _header_tree->Branch("dut_name",&_dutnames);
+    _header_tree->Branch("channel",&_channels);
+
+    if( _bore_filled ) 
+    {
+        _header_tree->Fill();
+    }
+}
+    
+void ROOTCreator::initialize_file()
+{
+    if(_root != nullptr)
+    {
+        close_file();
+    }
+
+    if(_root == nullptr)
+    {
+        std::string filename = _outfile;
+        // Splitting the files
+        if( _max_condition != -1 ) 
+        {
+            // Asumed '.root' suffix: 9 characters
+            filename = filename.substr(0, filename.size() - 5) + "_"+std::to_string(_file_counter)+".root";
+        }
+        _root = new TFile(filename.c_str(),"RECREATE");
+        ++_file_counter;
+
+        _initialize_trees();
+
+        // associate the trees to the file
+        _header_tree->SetDirectory(_root);
+        _wf_tree->SetDirectory(_root);
+    }
+}
+
+void ROOTCreator::close_file()
+{
+    // Store file content
+    _header_tree->Write();
+    _wf_tree->Write();
+
+    _root->Close();
+
+    // and the counter
+    _current_processed = 0;
+
+    delete _root;
+    _root = nullptr;
+}
+
+void ROOTCreator::use_split_condition()
+{
+    // XXX -- here it can be choosen the file or the number of events
+    if( _split_condition() )
+    {
+        close_file();
+        initialize_file();
+    }
+    // Check the current processed events in this file
+    ++_current_processed;
+}
+
+void ROOTCreator::fill_BORE(CAENDT5742Events & caen, int run_number, int device_id)
+{
+    // Initialize vectors
+    _dutnames = new std::vector<std::string>;
+    _channels = new std::vector<std::vector<Double_t>>;
+    
+    // Fill metadata
+    _run_number = run_number;
+    _sampling_frequency_MHz = caen.get_sampling_frequency_MHz();
+    _n_samples_per_waveform = caen.get_samples_per_waveform();
+    _t0 = caen.get_t0(device_id);
+    _dt = caen.get_dt(device_id);
+    // Creation of the DUTs, channels 
+    // (*) Expecting to keep same order than (*)
+    for(const auto & dutname_id: caen.get_dutnames_and_id(device_id))
+    {
+        _dutnames->push_back(dutname_id.first);
+        _channels->push_back( {} );
+        // At a given caen, the block-id, and therefore the order we need to
+        // propagate here, is given by the 
+        // _dut_channel_arrangement[dev_id][dutname_sensorid.second]
+        // where ` dutname_sensorid.second is given by _dut_names_id[dev_id]
+        // The order of the sensor, i.e. of the plane
+        for(const auto & chid: caen.get_channel_list(device_id, dutname_id.first))
+        {
+            (_channels->rbegin())->push_back( chid );
+        }
+    }
+
+    _header_tree->Fill();
+
+    _bore_filled = true;
+}
+
+void ROOTCreator::fill_event_waveforms(CAENDT5742Events & caen, 
+        const std::shared_ptr<eudaq::StandardEvent> & evstd,
+        int event_number,
+        int device_id)
+{
+    // The event and producer branches
+    _event_number = event_number;
+    _current_producer = caen.get_producer_name(device_id);
+
+    // Vector init
+    _volt = new std::vector<std::vector<Double_t>>;
+    // They should (MUST!!) be in the same order than established in (*)
+    // The Plane number (sensor ID in the monitor) is defined at the 
+    // converter, so following the exact loop
+    for(const auto & dutname_sensorid: caen.get_dutnames_and_id(device_id))
+    {
+        auto dut_plane = evstd->GetPlane(dutname_sensorid.second);
+        int pixid = 0;
+        // The pixel number is given in the producer by following the Channel-ID provided
+        // in the configuration file (so extracted in the `initialize` method)
+        for(const auto & chid: caen.get_channel_list(device_id, dutname_sensorid.first))
+        {
+            if( caen.get_rows_and_columns_list(device_id,dutname_sensorid.second,chid).size() > 1 )
+            {
+                const std::string msg("Unable to deal with more than one pixel per channel... ");
+                throw std::runtime_error(msg);
+            }
+            _volt->push_back( dut_plane.GetWaveform(pixid) );
+            ++pixid;
+        }
+    }
+    _wf_tree->Fill();
+    delete _volt;
+}
+// ROOTCreator --- END
+
+
 int main(int /*argc*/, const char **argv) 
 {
     eudaq::OptionParser op("EUDAQ Command Line DataConverter", "2.0", "The Data Converter launcher of EUDAQ");
     eudaq::Option<std::string> file_input(op, "i", "input", "", "string",
             "input file");
-    eudaq::Option<std::string> file_output(op, "o", "output", "", "string",
-            "output file [default: <input>.root]");
+    eudaq::Option<std::string> file_output(op, "o", "output", "<input>.root", "string",
+            "output file");
+    eudaq::Option<int> max_events(op, "e", "events", -1, "EVENTS TO PROCESS", "maxim number of events to process");
+    eudaq::Option<int> max_size(op, "s", "size", -1, "MAX ROOT SIZE", "maxim size of the output root");
     eudaq::OptionFlag iprint(op, "ip", "iprint", "enable print of input Event");
 
     try
@@ -267,6 +544,13 @@ int main(int /*argc*/, const char **argv)
     catch (...) 
     {
         return op.HandleMainException();
+    }
+
+    // Check options mutually exclusive
+    if( max_events.Value() != -1 && max_size.Value() != -1) 
+    {
+        std::cerr << "Mutually exclusive options -e and -s" << std::endl;
+        return 1;
     }
     
     std::string infile_path = file_input.Value();
@@ -287,43 +571,24 @@ int main(int /*argc*/, const char **argv)
     reader = eudaq::Factory<eudaq::FileReader>::MakeUnique(eudaq::str2hash("native"), infile_path);
 
     // Output
-    TFile * f_root = new TFile(outfile_path.c_str(),"RECREATE");
-    TTree * wf_tree = new TTree("Waveforms","Waveforms from eudaq raw file");
-
-    // Variable definition for the tree filling
-    int event_number = -1;
-    std::string current_producer;
-    std::vector<std::vector<Double_t>>* volt; 
+    /// Check if splitting was conducted
+    std::string split_condition("");
+    int split_max_value = -1;
+    if( max_events.Value() != -1 )
+    {
+        split_condition = "events";
+        split_max_value = max_events.Value();
+        std::cout << "Splitting ROOT files into chunks of " << split_max_value << " events" << std::endl;
+    }
+    else if( max_size.Value() != -1 )
+    {
+        split_condition = "size";
+        split_max_value = max_size.Value();
+        std::cout << "Splitting ROOT files into chunks of " << split_max_value << " GB" << std::endl;
+    }
     
-    // Branches creation
-    wf_tree->Branch("event", &event_number);
-    wf_tree->Branch("producer", &current_producer);
-    wf_tree->Branch("voltages", &volt);
-    
-    // Header tree with topology info
-    TTree * header_tree = new TTree("Metadata","Useful info");
-    // Runtime vectors
-    // DUTs names
-    std::vector<std::string>* dutnames;
-    // channels map : the number of elements here defines the rest of the vectors
-    std::vector<std::vector<Double_t>>* channels; 
-    // Run number
-    int run_number =-1;
-    // Sampling frequency
-    int sampling_frequency_MHz = -1;
-    // Number of samples per wf
-    int n_samples_per_waveform = -1;
-    // Initial time and dt
-    float t0 = -1;
-    float dt = -1;
-    
-    header_tree->Branch("run_number",&run_number);
-    header_tree->Branch("sampling_frequency_MHz",&sampling_frequency_MHz);
-    header_tree->Branch("samples_per_waveform",&n_samples_per_waveform);
-    header_tree->Branch("t0",&t0);
-    header_tree->Branch("dt",&dt);
-    header_tree->Branch("dut_name",&dutnames);
-    header_tree->Branch("channel",&channels);
+    ROOTCreator root_creator = ROOTCreator(outfile_path, split_condition, split_max_value);
+    root_creator.initialize_file();
     
     int counter = 0;
     std::cout << "Extracting the wf from " << infile_path << " to " << outfile_path << std::endl;
@@ -344,7 +609,7 @@ int main(int /*argc*/, const char **argv)
             break;
         }
         
-        event_number = ev->GetEventN();
+        const int event_number = ev->GetEventN();
 
         for(const auto & subevt: ev->GetSubEvents())
         {
@@ -359,85 +624,35 @@ int main(int /*argc*/, const char **argv)
 
             if(raw_event->IsBORE()) 
             {
-                // Initialize vectors
-                dutnames = new std::vector<std::string>;
-                channels = new std::vector<std::vector<Double_t>>;        
-                
                 caen.initialize(raw_event);
-
+                const int run_number = raw_event->GetRunNumber();
+                
                 // Fill metadata
-                run_number = raw_event->GetRunNumber();
-                sampling_frequency_MHz = caen.get_sampling_frequency_MHz();
-                n_samples_per_waveform = caen.get_samples_per_waveform();
-                // Creation of the DUTs, channels 
-                // (*) Expecting to keep same order than (*)
-                for(const auto & dutname_id: caen.get_dutnames_and_id(device_id))
-                {
-                    dutnames->push_back(dutname_id.first);
-                    channels->push_back( {} );
-                    // At a given caen, the block-id, and therefore the order we need to
-                    // propagate here, is given by the 
-                    // _dut_channel_arrangement[dev_id][dutname_sensorid.second]
-                    // where ` dutname_sensorid.second is given by _dut_names_id[dev_id]
-                    // The order of the sensor, i.e. of the plane
-                    for(const auto & chid: caen.get_channel_list(device_id, dutname_id.first))
-                    {
-                        (channels->rbegin())->push_back( chid );
-                    }
-                }
-                header_tree->Fill();
-                // Clear metadata vectors
-                if( dutnames != nullptr )
-                {
-                    delete dutnames;
-                    dutnames = nullptr;
-                }
-                if( channels != nullptr )
-                {
-                    delete channels;
-                    channels = nullptr;
-                }
+                root_creator.fill_BORE(caen, run_number, device_id);
             }
 
-            current_producer = caen.get_producer_name(device_id);
             // Extract the relevant things.. so waveforms
             auto evstd = eudaq::StandardEvent::MakeShared();
             eudaq::StdEventConverter::Convert(subevt, evstd, config_spc);
 
-            // Vector init
-            volt = new std::vector<std::vector<Double_t>>;
-            // They should (MUST!!) be in the same order than established in (*)
-            // The Plane number (sensor ID in the monitor) is defined at the 
-            // converter, so following the exact loop
-            for(const auto & dutname_sensorid: caen.get_dutnames_and_id(device_id))
-            {
-                auto dut_plane = evstd->GetPlane(dutname_sensorid.second);
-                int pixid = 0;
-                // The pixel number is given in the producer by following the Channel-ID provided
-                // in the configuration file (so extracted in the `initialize` method)
-                for(const auto & chid: caen.get_channel_list(device_id, dutname_sensorid.first))
-                {
-                    if( caen.get_rows_and_columns_list(device_id,dutname_sensorid.second,chid).size() > 1 )
-                    {
-                        std::cerr << "Unable to deal with more than one pixel per channel... " << std::endl;
-                        return -1;
-                    }
-                    volt->push_back( dut_plane.GetWaveform(pixid) );
-                    ++pixid;
-                }
-            }
-            wf_tree->Fill();
-            delete volt;
+            // Fill the waveforms
+            root_creator.fill_event_waveforms(caen, evstd, event_number, device_id);
         }
+
         ++counter;
-        if(event_number % 1000 == 0) 
+        if(event_number % 1000 == 0)
         {
             std::cout << "Processed event: " << event_number << std::endl;
         }
+
+        root_creator.use_split_condition();
     }
+    
+    // Closing up root file 
+    root_creator.close_file();
 
     // Closing up root file
-    header_tree->Write();
+    /*header_tree->Write();
     wf_tree->Write();
     f_root->Close();
 
@@ -446,7 +661,7 @@ int main(int /*argc*/, const char **argv)
 
     delete channels;
     delete dutnames;
-    //delete volt;
+    //delete volt;*/
 
     std::cout << "Read " << counter << " events" << std::endl;
     return 0;
