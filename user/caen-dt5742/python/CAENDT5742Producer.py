@@ -24,7 +24,12 @@ import time
 
 import pandas
 
-DEBUG_WAVEFORMS_DUMPING = True
+# This was added at DESY because the USB connection of the CAEN was randomly breaking, so in this we at least we get a notification in the phone ---
+from progressreporting.TelegramProgressReporter import SafeTelegramReporter4Loops # https://github.com/SengerM/progressreporting
+import my_telegram_bots # Here I keep the info from my bots, never make it public!
+# --------------------------------------------------------------------------------------------------------------------------------------------------
+
+DEBUG_WAVEFORMS_DUMPING = False
 LOCATION_FOR_DUMPING_DATA = Path.home()/'Desktop/data'
 if DEBUG_WAVEFORMS_DUMPING:
     import pandas
@@ -155,10 +160,15 @@ class CAENDT5742Producer(pyeudaq.Producer):
             raise RuntimeError(f'`LinkNum` (int) parameter is mandatory in the init file.')
         except ValueError:
             raise ValueError(f'`LinkNum` must be an integer')
-        
         expected_serial_number = initconf.get('expected_serial_number')
         
         self._digitizer = CAEN_DAQ(LinkNum=LinkNum)
+        
+        self._telegram_reporter = SafeTelegramReporter4Loops(
+            bot_token=my_telegram_bots.robobot.token, 
+            chat_id='-4198108027',
+            parse_mode = 'Markdown', # This is optional. But it is cool.
+        )
         
         if expected_serial_number is not None:
             actual_serial_number = str(self._digitizer.get_info()['SerialNumber'])
@@ -266,7 +276,7 @@ class CAENDT5742Producer(pyeudaq.Producer):
                 # Front Panel I/O Control, see '742 Raw Waveform Registers Description' in https://www.caen.it/products/dt5742/ → Downloads.
                 address = 0x811C, 
                 data = (0
-                        | 0b0<<0 # 1 = TTL standard, 0 = NIM standard.
+                        | 0b1<<0 # 1 = TTL standard, 0 = NIM standard.
                         | 0b01<<16 #  Motherboard Probes: TRG‐OUT/GPO is used to propagate signals of the motherboards according to bits[19:18].
                         | 0b11<<18 # BUSY/UNLOCK: this is the board BUSY in case of ROC FPGA firmware rel. 4.5 or lower. This probe can be selected according to bit[20].
                         | 0b0<<20 # If bits[19:18] = 11, then bit[20] options are: 0 = Board BUSY.
@@ -407,15 +417,25 @@ class CAENDT5742Producer(pyeudaq.Producer):
                 waveforms_to_dump.to_pickle(LOCATION_FOR_DUMPING_DATA/f'{this_run_timestamp}_waveforms_CAEN_{str(self._digitizer.get_info()["SerialNumber"])}.pickle')
             
         threading.Thread(target=thread_target_function, daemon=True).start()
-
-        while self.is_running:
-            with self._CAEN_lock:
-                if self._digitizer.get_acquisition_status()['at least one event available for readout'] == True:
-                    waveforms = self._digitizer.get_waveforms(get_time=False, get_ADCu_instead_of_volts=False)
-                    # Waveforms is a list of dictionaries, each of which contains the waveforms from each trigger.
-                    for this_trigger_waveforms in waveforms:
-                        self.events_queue.put(this_trigger_waveforms)
-            time.sleep(1e-6) # This small delay is so that the lock can be acquired by other threads, otherwise it goes so fast that no one else can acquire it other than by chance.
+        
+        try:
+            with self._telegram_reporter.report_loop(total_loop_iterations=100000):
+                while self.is_running:
+                    with self._CAEN_lock:
+                        if self._digitizer.get_acquisition_status()['at least one event available for readout'] == True:
+                            wf_start = time.perf_counter()
+                            waveforms = self._digitizer.get_waveforms(get_time=False, get_ADCu_instead_of_volts=False)
+                            wf_end = time.perf_counter()
+                            # Waveforms is a list of dictionaries, each of which contains the waveforms from each trigger.
+                            for this_trigger_waveforms in waveforms:
+                                self.events_queue.put(this_trigger_waveforms)
+                                self._telegram_reporter.update(1)
+                            wf_end_2 = time.perf_counter()
+                            print(f'get_waveform: {(wf_end-wf_start)*1e3:0.4f} [ms]. Total process (including put in queue and telegram: {(wf_end_2-wf_start)*1e3:0.4f} [ms]')
+                    time.sleep(1e-6) # This small delay is so that the lock can be acquired by other threads, otherwise it goes so fast that no one else can acquire it other than by chance.
+        except Exception as e:
+            self._telegram_reporter.send_message(f'🔥🔥 CAEN data acquisition loop failed\n\nReason: {repr(e)}')
+            raise e
 
 @click.command()
 @click.option('-n','--name', default='CAEN_digitizer',
@@ -436,9 +456,3 @@ def main(name,runctrl,dry_run):
         
 if __name__ == "__main__":
     main()
-    # ~ channels_mapping = parse_channels_mapping(Path('/home/msenger/config/channels.csv'))
-    # ~ print(channels_mapping)
-    # ~ tag_with_DUT_channels = channels_mapping['weird_DUT']
-    
-    # ~ print()
-    
