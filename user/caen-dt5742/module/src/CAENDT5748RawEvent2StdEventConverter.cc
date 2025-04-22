@@ -271,25 +271,6 @@ bool CAENDT5748RawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq:
 
     const int dev_id = event->GetDeviceN();
 
-/*std::cout << "Number of blocks: " << event->NumBlocks() << " , event number: " << event->GetEventN() 
-    << ", event id: " << event->GetEventID()
-    << ", stream N: " << event->GetStreamN()
-    << ", Run: " << event->GetRunNumber() 
-    << ", Type:" << event->GetType()
-    << ", Version:" << event->GetVersion()
-    << ", Flag:" << event->GetFlag()
-    << ", DeviceN:" << event->GetDeviceN()
-    << ", N-subEvents:" << event->GetNumSubEvent()
-    << ", Trigger Number:" << event->GetTriggerN()
-    << ", Extend word:" << event->GetExtendWord()
-    << ", TS begin:" << event->GetTimestampBegin()
-    << ", TS end:" << event->GetTimestampEnd()
-    << ", Description:" << event->GetDescription()
-    << std::endl;
-
-
-std::cin.get();*/
-
     // Expecting one block per channel
     if(event->NumBlocks() != _dut_channel_list[dev_id].size()) {
         EUDAQ_ERROR(" Expected one block per channel (n-channel: "+ 
@@ -385,8 +366,6 @@ std::cout << " Dut: " << dutname_sensorid.first << " (ID: " << dutname_sensorid.
         // Define the size of the DUT (in row and columns) --> Extracted from _nrows_ncolumns
         // Remember in here: first columns, then rows
         plane.SetSizeZS( (uint32_t)_nrows_ncolumns[dev_id][dutname_sensorid.second][1], 
-            (uint32_t)_nrows_ncolumns[dev_id][dutname_sensorid.second][0],
-            _npixels[dev_id][dutname_sensorid.second]);
 
         int pixid = 0;
         for(const auto & ch_colrowlist: _dut_channel_arrangement[dev_id][dutname_sensorid.second]) {
@@ -399,7 +378,7 @@ std::cout << " Dut: " << dutname_sensorid.first << " (ID: " << dutname_sensorid.
             // XXX -- Make this sense? Just to avoid crashing... [PROV]
             if(waveform_float.size() == 0)
             {
-                ++pixid;
+                //++pixid;
                 continue;
             }
             
@@ -415,25 +394,27 @@ std::cin.get();*/
 
             std::vector<double> wf(waveform_float.begin(), waveform_float.end());
             
-            for(const auto & pixel: ch_colrowlist.second) {
+/*if(producer_name == "CAEN_IJS")
+{
+std::cout << "DUT: " << dutname_sensorid.first << " Sensor: " << dutname_sensorid.second  << " PIXID: " << pixid << std::endl;
+ }*/
+            for(const auto & pixel: ch_rowcollist.second) {
+/*if(producer_name == "CAEN_IJS")
+{
+std::cout << "Block id: " << ch_rowcollist.first << " pixid: " << pixid << ", pixel: col-" << pixel[1] << " ,row-" << pixel[0]
+    << " A=" << amplitude << std::endl ;
+}*/
                 // Note the signature introduce x,y -> col, row. Opposite to which we store
-                plane.SetPixel(pixid, pixel[1], pixel[0], amplitude);
-                plane.SetPixelAuxInfo(pixid, dutname_sensorid.first+":CH"+std::to_string(ch_colrowlist.first));
+                plane.PushPixel(pixel[1], pixel[0], amplitude, uint32_t(0));
+                plane.SetPixelAuxInfo(pixid, dutname_sensorid.first+":CH"+std::to_string(ch_rowcollist.first)+":col"+std::to_string(pixel[1])+":row"+std::to_string(pixel[0]));
                 plane.SetWaveform(pixid, wf, _t0[dev_id], _dt[dev_id] );
                 ++pixid;
             }
-/*std::cout << " The Raw data for CH-" << ch_colrowlist.first << ": [size: " << raw_data.size() << "]: " ;
-for(const auto & dt: raw_data)
-{
-    std::cout << " " << dt ;
-}
-std::cout << std::endl;*/
         }
         d2->AddPlane(plane);
     }
 /*d2->Print(std::cout);
 std::cin.get();*/
-
     return true;
 }
 

@@ -13,7 +13,7 @@ SimpleStandardPlane::SimpleStandardPlane(const std::string &name, const int id,
                                          const int maxX, const int maxY,
                                          OnlineMonConfiguration *mymon)
     : _name(name), _id(id), _maxX(maxX), _maxY(maxY), _binsX(maxX),
-      _binsY(maxY) {
+      _binsY(maxY), _timingPlane(false) {
   const int hits_reserve = 500;
   _hits.reserve(hits_reserve);
   _badhits.reserve(hits_reserve); // allocate memory
@@ -40,6 +40,7 @@ SimpleStandardPlane::SimpleStandardPlane(const std::string &name, const int id,
   is_RD53B = false;
   is_RD53BQUAD = false;
   is_CAENDT5742 = false;
+  is_ETROC = false;
   is_UNKNOWN = true; // per default we don't know this plane
   isRotated = false;
   setPixelType(name); // set the pixel type
@@ -47,7 +48,8 @@ SimpleStandardPlane::SimpleStandardPlane(const std::string &name, const int id,
 
 SimpleStandardPlane::SimpleStandardPlane(const std::string &name, const int id)
     : _name(name), _id(id), _maxX(-1),
-      _maxY(-1) // FIXME we actually only need this type of constructor to form
+      _maxY(-1), _timingPlane(false)
+      // FIXME we actually only need this type of constructor to form
                 // a map for histogramm allocation
 {
   _hits.reserve(400);
@@ -69,6 +71,7 @@ SimpleStandardPlane::SimpleStandardPlane(const std::string &name, const int id)
   is_RD53B = false;
   is_RD53BQUAD = false;
   is_CAENDT5742 = false;
+  is_ETROC = false;
   is_UNKNOWN = true; // per default we don't know this plane
   isRotated = false;
   setPixelType(name); // set the pixel type
@@ -105,6 +108,41 @@ void SimpleStandardPlane::addRawHit(SimpleStandardHit oneHit) {
 void SimpleStandardPlane::reducePixels(const int reduceX, const int reduceY) {
   _binsX = reduceX;
   _binsY = reduceY;
+}
+
+std::array<std::string,4> SimpleStandardPlane::getDutnameChannelColRow(int index) const {
+    // FIXME -- This function is very weak, constantly check the pos value
+    
+    // XXX - Asumed to be defined with the following information:
+    // dutname:channel:colX:rowY
+    if( _auxinfo.size() <= index ) {
+        return { "", "", "", "" };
+    }
+    const std::string token(":");
+    const std::string fullname = getPixelAuxInfo(index);
+    // Nothing is available for this pixel
+    if(fullname.empty()) {
+        return { "", "", "", "" };
+    }
+
+    size_t pos = fullname.find(token);
+    const std::string dutname = fullname.substr(0, pos);
+    
+    // The rest of the string
+    const std::string channel_col_row = fullname.substr(pos + token.length());
+    // Extract channel (CH<Number>) 
+    pos = channel_col_row.find(token);
+    const std::string channel = channel_col_row.substr(2,pos-2);
+    
+    // The rest of the string
+    const std::string col_row = channel_col_row.substr(pos + token.length());
+    // Extract col (col<Number>)
+    pos = col_row.find(token);
+    const std::string col = col_row.substr(3,pos-3);
+    // And finally row (row<Number>
+    const std::string row = col_row.substr(pos + 3 + token.length());
+
+    return { dutname, channel, col, row };
 }
 
 void SimpleStandardPlane::doClustering() {
@@ -257,7 +295,7 @@ void SimpleStandardPlane::setPixelType(std::string name) {
     is_RD53A = true;
     is_UNKNOWN = false;
     AnalogPixelType = true;
-  } else if(name.find("Rd53b") != std::string::npos) {
+  } else if(name.find("Rd53b") != std::string::npos || name.find("RD53B") != std::string::npos) {
     is_RD53B = true;
     is_UNKNOWN = false;
     AnalogPixelType = true;
@@ -267,6 +305,10 @@ void SimpleStandardPlane::setPixelType(std::string name) {
     AnalogPixelType = true;
   } else if(name.find("CAEN") != std::string::npos) {
     is_CAENDT5742 = true;
+    is_UNKNOWN = false;
+    AnalogPixelType = true;
+  } else if(name.find("ETROC") != std::string::npos ) {
+    is_ETROC = true;
     is_UNKNOWN = false;
     AnalogPixelType = true;
   } else {

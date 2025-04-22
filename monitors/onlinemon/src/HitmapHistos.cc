@@ -17,7 +17,7 @@ HitmapHistos::HitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
       _clusterYWidth(NULL), _nbadHits(NULL), _nHotPixels(NULL),
       _hitmapSections(NULL), is_MIMOSA26(false), is_APIX(false),
       is_USBPIX(false), is_USBPIXI4(false), is_RD53A(false), is_RD53B(false), is_RD53BQUAD(false),
-      is_CAENDT5742(false) {
+      is_CAENDT5742(false), is_ETROC(false) {
   char out[1024], out2[1024];
 
   _mon = mon;
@@ -28,12 +28,14 @@ HitmapHistos::HitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
     is_APIX = true;
   } else if (_sensor == std::string("RD53A")) {
     is_RD53A = true;
-  } else if (_sensor == std::string("RD53B")) {
+  } else if (_sensor == std::string("RD53B") || _sensor == std::string("CMSIT")) {
     is_RD53B = true;
   } else if (_sensor == std::string("RD53BQUAD")) {
     is_RD53BQUAD = true;
   } else if (_sensor.find("CAEN") != std::string::npos) {
     is_CAENDT5742 = true;
+  } else if (_sensor == std::string("ETROC") != std::string::npos) {
+    is_ETROC = true;  
   } else if ((_sensor == std::string("USBPIX")) || (_sensor.find("USBPIXI-") != std::string::npos)) {
     is_USBPIX = true;
   } else if ((_sensor == std::string("USBPIXI4")) || (_sensor.find("USBPIXI4-") == std::string::npos)) {
@@ -77,7 +79,11 @@ HitmapHistos::HitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
     if(p.is_RD53A || p.is_RD53B || p.is_RD53BQUAD) 
     {
        lvl1_bin = 32;
-     }
+    }
+    if(p.is_ETROC) 
+    {
+       lvl1_bin = 64;
+    }
     _lvl1Distr = new TH1I(out2, out, lvl1_bin, 0, lvl1_bin);
     SetHistoAxisLabelx(_lvl1Distr, "Lvl1 [25 ns]");
 
@@ -95,6 +101,8 @@ HitmapHistos::HitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
       _totSingle = new TH1I(out2, out, 16, 0, 15);
     } else if (p.is_DEPFET) {
       _totSingle = new TH1I(out2, out, 255, -127, 127);
+    } else if (p.is_ETROC) {
+      _totSingle = new TH1I(out2, out, 512, 0, 511);
     } else {
       _totSingle = new TH1I(out2, out, 256, 0, 255);
 #ifdef EUDAQ_LIB_ROOT6
@@ -154,7 +162,7 @@ HitmapHistos::HitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
     sprintf(out2, "h_hitmapSections_%s_%i", _sensor.c_str(), _id);
     _hitmapSections = new TH1I(out2, out, mimosa26_max_section, _id, _id + 1);
     
-    //  Timing -- Only for CAEN
+    //  Timing -- Only for CAEN 
     if( is_CAENDT5742 ) {
         for(unsigned int col = 0; col < _maxX; ++col) {
             for(unsigned int row = 0; row < _maxY; ++row) {
@@ -168,6 +176,30 @@ HitmapHistos::HitmapHistos(SimpleStandardPlane p, RootMonitor *mon)
                 _waveforms[pixid]->SetCanExtend(TH1::kAllAxes);
             }
         }
+    }
+    //  TOA and Cal -- Only for ETROC
+    if( is_ETROC ) {
+        sprintf(out, "%s %i TOA CODE", _sensor.c_str(), _id);
+        sprintf(out2, "h_toacode_%s_%i", _sensor.c_str(), _id);
+        // 10b -> 1024 
+        _toa_code = new TH1F(out2, out, 1024, 0, 1023);
+
+        sprintf(out, "%s %i Time of Arrival;ToA [ns];Entries", _sensor.c_str(), _id);
+        sprintf(out2, "h_toa_%s_%i", _sensor.c_str(), _id);
+        _toa = new TH1F(out2, out, 1000, 0, 50); 
+
+        sprintf(out, "%s %i Time Over threshold;TOT [ns];Entries", _sensor.c_str(), _id);
+        sprintf(out2, "h_totcal_%s_%i", _sensor.c_str(), _id);
+        _tot_cal = new TH1F(out2, out, 1000, 0, 50);
+        
+        sprintf(out, "%s %i Time of Arrival vs ToT;ToT [ns];ToA [ns]", _sensor.c_str(), _id);
+        sprintf(out2, "h_tot_vs_toa_%s_%i", _sensor.c_str(), _id);
+        _tot_vs_toa = new TH2F(out2, out, 1000, 0, 50, 1000, 0, 50); 
+
+        sprintf(out, "%s %i Cal", _sensor.c_str(), _id);
+        sprintf(out2, "h_cal_%s_%i", _sensor.c_str(), _id);
+        // 10b -> 1024 
+        _cal = new TH1F(out2, out, 1024, 0, 1023);
     }
 
     for (unsigned int section = 0; section < mimosa26_max_section; section++) {
@@ -264,9 +296,13 @@ void HitmapHistos::Fill(const SimpleStandardHit &hit) {
   int pixel_y = hit.getY();
 
   bool pixelIsHot = false;
-  if (_HotPixelMap->GetBinContent(pixel_x + 1, pixel_y + 1) >
-      _mon->mon_configdata.getHotpixelcut())
-    pixelIsHot = true;
+  // XXX Avoiding hot pixels, not well defined when wire-bonded,
+  // XXX Probably to remove this
+  if( ! is_ETROC ) {
+      if (_HotPixelMap->GetBinContent(pixel_x + 1, pixel_y + 1) >
+              _mon->mon_configdata.getHotpixelcut())
+          pixelIsHot = true;
+  }
 
   if (_hitmap != NULL && !pixelIsHot){
     _hitmap->Fill(pixel_x, pixel_y);
@@ -290,7 +326,7 @@ void HitmapHistos::Fill(const SimpleStandardHit &hit) {
   if ((pixel_x < _maxX) && (pixel_y < _maxY)) {
     plane_map_array[pixel_x][pixel_y] = plane_map_array[pixel_x][pixel_y] + 1;
   }
-  if ((is_APIX) || (is_USBPIX) || (is_USBPIXI4) || (is_DEPFET)|| is_RD53A || is_RD53B || is_RD53BQUAD) {
+  if ((is_APIX) || (is_USBPIX) || (is_USBPIXI4) || (is_DEPFET)|| is_RD53A || is_RD53B || is_RD53BQUAD || is_ETROC) {
     if (_totSingle != NULL)
       _totSingle->Fill(hit.getTOT());
     if (_lvl1Distr != NULL)
@@ -309,6 +345,23 @@ void HitmapHistos::Fill(const SimpleStandardHit &hit) {
       }
       const unsigned int pixid = pixel_x * _maxY + pixel_y;
       _waveforms[pixid]->FillN(wf.size(), &_s[0], &(hit.getWaveform()[0]), nullptr, 1);
+  }
+  if( is_ETROC ) {
+      // TOA:CAL in the auxx info
+      const int toa_code = hit.getAuxInfoAs<int>(0);
+      _toa_code->Fill( toa_code );
+      const int cal_code = hit.getAuxInfoAs<int>(1);
+      _cal->Fill( cal_code );
+      // Calibration 
+      const float t3 = 3.125; // ns
+      // --> ETROC2 pag25 v0.43
+      const float tbin = t3/(cal_code+1); 
+      const float toa = tbin*toa_code;
+      const float totcal = (2*hit.getTOT() - floor(hit.getTOT()/32))*tbin;
+
+      _toa->Fill(toa);
+      _tot_cal->Fill(totcal);
+      _tot_vs_toa->Fill(totcal, toa);
   }
   ++FILLED_WF;
 }
@@ -361,7 +414,7 @@ void HitmapHistos::Fill(const SimpleStandardCluster &cluster) {
     }
   }
 
-  if ((is_APIX) || (is_USBPIX) || (is_USBPIXI4)|| is_RD53A || is_RD53B || is_RD53BQUAD) {
+  if ((is_APIX) || (is_USBPIX) || (is_USBPIXI4)|| is_RD53A || is_RD53B || is_RD53BQUAD || is_ETROC) {
     if (_lvl1Width != NULL)
       _lvl1Width->Fill(cluster.getLVL1Width());
     if (_totCluster != NULL)

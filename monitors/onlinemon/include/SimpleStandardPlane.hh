@@ -13,9 +13,10 @@
 #include <iostream>
 #include <set>
 #include <algorithm>
-
 #include <stdio.h>
 #include <string.h>
+#include <map>
+#include <array>
 
 #include "include/SimpleStandardHit.hh"
 #include "include/SimpleStandardCluster.hh"
@@ -33,6 +34,8 @@ protected:
   int _maxY;
   int _binsX;
   int _binsY;
+  bool _timingPlane;
+  std::map<uint32_t, std::string> _auxinfo;
   std::vector<SimpleStandardHit> _hits;
   std::vector<SimpleStandardHit>
       _badhits; // stores hits which appear to be corrupted
@@ -48,6 +51,8 @@ public:
   SimpleStandardPlane(const std::string &name, const int id, const int maxX,
                       const int maxY, OnlineMonConfiguration *mymon);
   SimpleStandardPlane(const std::string &name, const int id);
+  void definedAsTimingPlane() { _timingPlane = true; }
+  bool isTimingPlane() const { return _timingPlane; }
   void addHit(SimpleStandardHit oneHit);
   void addRawHit(SimpleStandardHit oneHit);
   void doClustering();
@@ -69,6 +74,8 @@ public:
   SimpleStandardHit getHit(const int i) const { return _hits.at(i); }
   SimpleStandardHit getRawHit(const int i) const { return _rawhits.at(i); }
   std::string getName() const { return _name; }
+  // Only valid for timing planes,  otherwise return empyt strings
+  std::array<std::string, 4> getDutnameChannelColRow(int index) const;
   int getID() const { return _id; }
   int getMaxX() const { return _maxX; }
   int getMaxY() const { return _maxY; }
@@ -82,6 +89,9 @@ public:
   void setIsRotated(bool type) { isRotated = type; }
   bool getIsRotated() { return isRotated; }
   void setPixelType(std::string name);
+  void setPixelAuxInfo(uint32_t index, const std::string & auxinfo) { _auxinfo[index] = auxinfo; }
+  std::string getPixelAuxInfo(uint32_t index) const { return _auxinfo.at(index); }
+  bool hasPixelAuxInfo(uint32_t index) const { return _auxinfo.find(index) != _auxinfo.end(); }
   bool is_MIMOSA26;
   bool is_DEPFET;
   bool is_APIX;
@@ -95,6 +105,7 @@ public:
   bool is_RD53B;
   bool is_RD53BQUAD;
   bool is_CAENDT5742;
+  bool is_ETROC;
   bool is_UNKNOWN;
 
 private:

@@ -100,6 +100,11 @@ void HitmapCollection::Fill(const SimpleStandardEvent &simpev) {
 
   for (int plane = 0; plane < simpev.getNPlanes(); plane++) {
     const SimpleStandardPlane &simpPlane = simpev.getPlane(plane);
+    // Not fill Hit map histograms in case of a timing plane
+    // Use their proper histo collection
+    if(simpPlane.isTimingPlane()) {
+        continue;
+    }
     fillHistograms(simpPlane);
   }
 }
@@ -110,6 +115,7 @@ HitmapHistos *HitmapCollection::getHitmapHistos(std::string sensor, int id) {
 
 void HitmapCollection::registerPlane(const SimpleStandardPlane &p) {
   HitmapHistos *tmphisto = new HitmapHistos(p, _mon);
+
   _map[p] = tmphisto;
   if (_mon != NULL) {
     if (_mon->getOnlineMon() == NULL) {
@@ -146,7 +152,7 @@ void HitmapCollection::registerPlane(const SimpleStandardPlane &p) {
     _mon->getOnlineMon()->registerHisto(
         tree, getHitmapHistos(p.getName(), p.getID())->getClusterMapHisto(),
         "COLZ", 0);
-    if ((p.is_APIX) || (p.is_USBPIX) || (p.is_USBPIXI4) || (p.is_RD53A) || (p.is_RD53B) || (p.is_RD53BQUAD)) {
+    if ((p.is_APIX) || (p.is_USBPIX) || (p.is_USBPIXI4) || (p.is_RD53A) || (p.is_RD53B) || (p.is_RD53BQUAD) || p.is_ETROC) {
       sprintf(tree, "%s/Sensor %i/LVL1Distr", p.getName().c_str(), p.getID());
       _mon->getOnlineMon()->registerTreeItem(tree);
       _mon->getOnlineMon()->registerHisto(
@@ -185,6 +191,31 @@ void HitmapCollection::registerPlane(const SimpleStandardPlane &p) {
       _mon->getOnlineMon()->registerHisto(
           tree,
           getHitmapHistos(p.getName(), p.getID())->getClusterWidthYHisto());
+      if(p.is_ETROC) {
+          sprintf(tree, "%s/Sensor %i/Cal", p.getName().c_str(), p.getID());
+          _mon->getOnlineMon()->registerTreeItem(tree);
+          _mon->getOnlineMon()->registerHisto(
+                  tree, getHitmapHistos(p.getName(), p.getID())->getCalHisto());
+          sprintf(tree, "%s/Sensor %i/TOACode", p.getName().c_str(), p.getID());
+          _mon->getOnlineMon()->registerTreeItem(tree);
+          _mon->getOnlineMon()->registerHisto(
+                  tree, getHitmapHistos(p.getName(), p.getID())->getTOACodeHisto());
+          
+          sprintf(tree, "%s/Sensor %i/TOA", p.getName().c_str(), p.getID());
+          _mon->getOnlineMon()->registerTreeItem(tree);
+          _mon->getOnlineMon()->registerHisto(
+                  tree, getHitmapHistos(p.getName(), p.getID())->getTOACalHisto());
+          
+          sprintf(tree, "%s/Sensor %i/TOTCal", p.getName().c_str(), p.getID());
+          _mon->getOnlineMon()->registerTreeItem(tree);
+          _mon->getOnlineMon()->registerHisto(
+                  tree, getHitmapHistos(p.getName(), p.getID())->getTOTCalHisto());
+          
+          sprintf(tree, "%s/Sensor %i/TOTvsTOA", p.getName().c_str(), p.getID());
+          _mon->getOnlineMon()->registerTreeItem(tree);
+          _mon->getOnlineMon()->registerHisto(
+                  tree, getHitmapHistos(p.getName(), p.getID())->getTOTvsTOACalHisto(),"COLZ",1);
+      }
     }
     if (p.is_DEPFET) {
       sprintf(tree, "%s/Sensor %i/SingleTOT", p.getName().c_str(), p.getID());
@@ -246,7 +277,6 @@ void HitmapCollection::registerPlane(const SimpleStandardPlane &p) {
         sprintf(tree, "%s/Sensor %i/Waveforms", p.getName().c_str(), p.getID());
         _mon->getOnlineMon()->makeTreeItemSummary(tree);
     }
-
 
     if (p.is_MIMOSA26) {
       char mytree[4][1024]; // holds the number of histogramms for each section,
