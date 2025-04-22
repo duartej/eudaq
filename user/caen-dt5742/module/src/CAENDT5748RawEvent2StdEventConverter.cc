@@ -349,7 +349,7 @@ std::cout << "Group-" << (group_id - 1)
         waveforms_group[group_id] = waveforms;
     }
     // All channels are extracted (from all enabled groups)
-    // --> XXX -- TRIGGER TR0 MISSING TO BE DONE
+    // --> XXX -- TRIGGER TR0 MISSING TO BE DONE XXX ---- 
     
     // Each DUT is a plane
     for(const auto & dutname_sensorid: _dut_names_id[dev_id]) {
@@ -365,11 +365,14 @@ std::cout << " Dut: " << dutname_sensorid.first << " (ID: " << dutname_sensorid.
         eudaq::StandardPlane plane(sensor_id, "CAEN5748", producer_name);
         // Define the size of the DUT (in row and columns) --> Extracted from _nrows_ncolumns
         // Remember in here: first columns, then rows
-        plane.SetSizeZS( (uint32_t)_nrows_ncolumns[dev_id][dutname_sensorid.second][1], 
-
+        plane.SetSizeZS( (uint32_t)_nrows_ncolumns[dev_id][dutname_sensorid.second][1],
+                (uint32_t)_nrows_ncolumns[dev_id][dutname_sensorid.second][0],
+                0);
+        
+        // --> XXX -- IS this correct??  
         int pixid = 0;
-        for(const auto & ch_colrowlist: _dut_channel_arrangement[dev_id][dutname_sensorid.second]) {
-            const size_t channel = ch_colrowlist.first;
+        for(const auto & ch_rowcollist: _dut_channel_arrangement[dev_id][dutname_sensorid.second]) {
+            const size_t channel = ch_rowcollist.first;
             // What group? 0-7 -> group 0, 8->15 group 1
             const size_t gr = channel < 8 ? 0 : 1; 
             const size_t channel_inside_group = channel < 8 ? channel : channel - 8;
