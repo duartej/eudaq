@@ -12,6 +12,10 @@
 #include <regex>
 #include <numeric>
 #include <cmath>
+#include <cstring>
+
+// PROV -- dEBUGGING XXX
+#include <ios>
 
 // Digitizer: { channel : [ (row, col), (row, col), ... ], 
 // Each channel can be bounded to several diodes/pixels
@@ -26,7 +30,7 @@ class CAENDT5748RawEvent2StdEventConverter: public eudaq::StdEventConverter {
         void Initialize(eudaq::EventSPC bore, eudaq::ConfigurationSPC conf) const;
         PixelMap GetDUTPixelMap(const std::string & dut_tag) const; 
         // Helper functions
-        std::vector<float> uint8VectorToFloatVector(std::vector<uint8_t> data) const;
+        void waveforms_reassemble(uint32_t w0, uint32_t w1, uint32_t w2, std::vector<std::vector<float> > & waveforms) const;
         int PolarityWF(const std::vector<float> & wf) const;
         float AmplitudeWF(const std::vector<float> & wf) const;
 
@@ -172,29 +176,22 @@ void CAENDT5748RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, euda
     EUDAQ_DEBUG(" Initialize:: Channel list (internal-ids): [ " + oss.str() +" ]");
 }
 
-std::vector<float> CAENDT5748RawEvent2StdEventConverter::uint8VectorToFloatVector(std::vector<uint8_t> data) const {
-    // Everything in this function, except for this single line, was provided to me by ChatGPT. Amazing.
-    std::vector<float> result;
-    // size the result vector appropriately
-    result.resize(data.size() / sizeof(float)); 
-    // cast the pointer to float
-    float* resultPtr = reinterpret_cast<float*>(&result[0]);
 
-    // get a pointer to the data in the uint8_t vector
-    uint8_t* dataPtr = &data[0];
-
-    // get the size of the data in the uint8_t vector
-    size_t dataSize = data.size(); 
-
-    for (size_t i = 0; i < dataSize; i += sizeof(float)) {
-        // cast the value at dataPtr to float and store in result vector
-        *resultPtr = *reinterpret_cast<float*>(dataPtr); 
-        resultPtr++;
-        dataPtr += sizeof(float);
-    }
-
-    return result;
+// --- Función auxiliar para decodificar un bloque de 3 palabras ---
+void CAENDT5748RawEvent2StdEventConverter::waveforms_reassemble(uint32_t w0, uint32_t w1, uint32_t w2, std::vector<std::vector<float> > & waveforms) const {
+    // See CAEN User Manual data format. 
+    // Each three words contains the one sample (RDS4 cell) 
+    // for all enabled (?) channels. The info is store in 12bits
+    waveforms[0].push_back( static_cast<float>( (w0 >>  0) & 0xFFF) );
+    waveforms[1].push_back( static_cast<float>( (w0 >> 12) & 0xFFF) );
+    waveforms[2].push_back( static_cast<float>( ((w0 >> 24) & 0xFF) | ((w1 & 0xF) << 8) ) );
+    waveforms[3].push_back( static_cast<float>( (w1 >>  4) & 0xFFF ) );
+    waveforms[4].push_back( static_cast<float>( (w1 >> 16) & 0xFFF ) );
+    waveforms[5].push_back( static_cast<float>( ((w1 >> 28) & 0xF) | ((w2 & 0xFF) << 4) ) );
+    waveforms[6].push_back( static_cast<float>( (w2 >>  8) & 0xFFF ) );
+    waveforms[7].push_back( static_cast<float>( (w2 >> 20) & 0xFFF ) );
 }
+
 
 // FIXME -- Calculate it once: use a memoizer
 int CAENDT5748RawEvent2StdEventConverter::PolarityWF(const std::vector<float> & wf) const {
@@ -313,8 +310,74 @@ std::cin.get();*/
     }
 
     const std::string producer_name = _name[d1->GetDeviceN()];
+    
+    // Extract the event and convert it back to 32b words
+    // See data format in CAEN User Manual 9.7.2 
+    std::vector<uint8_t> raw = event->GetBlock(0);
+    std::vector<uint32_t> raw_event(raw.size() / 4);
+    std::memcpy(raw_event.data(), raw.data(), raw.size());
+    // Get the size of the event --> To cross-check ?? 
+    const size_t total_words = static_cast<size_t>(raw_event[0] & 0x0FFFFFFF);
+    if( total_words != raw_event.size() ) {
+        // XXX FIXME -- Some error message and break?
+    }
+
+    const uint32_t group_present  = raw_event[1] & 0x3; 
+    const uint32_t event_counter  = raw_event[2] & 0xFFFFFF;
+    const uint32_t event_time_tag = raw_event[3];
+
+    // Loop over all channels
+    // Processed event header (4 words)
+    size_t offset = 4;
+    size_t group_id  = 0;
+    std::map<size_t, std::vector<std::vector<float> >> waveforms_group;
+    while( offset < raw_event.size() ) {
+        // Checking if the current group is present 
+        if( ! (group_present >> group_id) & 0x1 ) {
+            // check next group, this is not here
+            ++group_id;
+            continue;
+        }
+
+        // Group data extraction (next word)
+        uint32_t group_header = raw_event[offset++];
+        // Info from the header, the number of words to be read
+        const uint32_t ch0_7_words = group_header & 0xFFF;
+
+std::cout << "Group-" << (group_id - 1) 
+    << " Group header: 0x" << std::hex << group_header << std::dec
+    << " Words to be read to extract all samples (excluding trigger): " << ch0_7_words
+    << std::endl;
+
+        // Eech waveform is stored in three words 
+        const size_t sample_steps = ch0_7_words / 3;
+
+        // The waveforms for each of the channels (from a total of 8)
+        //  each element corresponds to the channel number 
+        std::vector<std::vector<float> > waveforms(8);
+        for(size_t i = 0; i < sample_steps; ++i) {
+            // Extract the three consecutive words to
+            // reassemble the total waveform
+            uint32_t w0 = raw_event[offset++];
+            uint32_t w1 = raw_event[offset++];
+            uint32_t w2 = raw_event[offset++];
+
+            waveforms_reassemble(w0, w1, w2, waveforms);
+        }
+        // All channels of the group are stored
+        waveforms_group[group_id] = waveforms;
+    }
+    // All channels are extracted (from all enabled groups)
+    // --> XXX -- TRIGGER TR0 MISSING TO BE DONE
+    
     // Each DUT is a plane
     for(const auto & dutname_sensorid: _dut_names_id[dev_id]) {
+std::cout << " Dut: " << dutname_sensorid.first << " (ID: " << dutname_sensorid.second << ")" 
+    << " Total words in Event: " << total_words 
+    << " group present: " << group_present 
+    << " event counter: " << event_counter
+    << " event time tag: " << event_time_tag 
+    << std::endl;
         // XXX - Can we provide a dutname in the stdplane?? 
         const int sensor_id = dutname_sensorid.second;        
         // Each DUT defines a plane
@@ -322,17 +385,19 @@ std::cin.get();*/
         // Define the size of the DUT (in row and columns) --> Extracted from _nrows_ncolumns
         // Remember in here: first columns, then rows
         plane.SetSizeZS( (uint32_t)_nrows_ncolumns[dev_id][dutname_sensorid.second][1], 
-                (uint32_t)_nrows_ncolumns[dev_id][dutname_sensorid.second][0],
-                _npixels[dev_id][dutname_sensorid.second]);
-        
-        // Each channel is stored in a block
+            (uint32_t)_nrows_ncolumns[dev_id][dutname_sensorid.second][0],
+            _npixels[dev_id][dutname_sensorid.second]);
+
         int pixid = 0;
         for(const auto & ch_colrowlist: _dut_channel_arrangement[dev_id][dutname_sensorid.second]) {
-            const size_t n_block = ch_colrowlist.first;
-            std::vector<float> raw_data = uint8VectorToFloatVector(event->GetBlock(n_block));
-
+            const size_t channel = ch_colrowlist.first;
+            // What group? 0-7 -> group 0, 8->15 group 1
+            const size_t gr = channel < 8 ? 0 : 1; 
+            const size_t channel_inside_group = channel < 8 ? channel : channel - 8;
+            
+            const std::vector<float> & waveform_float = waveforms_group[gr][channel_inside_group];
             // XXX -- Make this sense? Just to avoid crashing... [PROV]
-            if(raw_data.size() == 0)
+            if(waveform_float.size() == 0)
             {
                 ++pixid;
                 continue;
@@ -343,12 +408,12 @@ std::cin.get();*/
 
             // XXX -- Is this what we want? Or maybe extract the integral? 
             //        for sure we'd like to get the rise time as well?
-            float amplitude = AmplitudeWF(raw_data);
+            float amplitude = AmplitudeWF(waveform_float);
 /*std::cout << "DUT: " << dutname_sensorid.first << " Sensor: " << dutname_sensorid.second 
     << " Amplitude: " << amplitude << std::endl; 
 std::cin.get();*/
 
-            std::vector<double> wf(raw_data.begin(), raw_data.end());
+            std::vector<double> wf(waveform_float.begin(), waveform_float.end());
             
             for(const auto & pixel: ch_colrowlist.second) {
                 // Note the signature introduce x,y -> col, row. Opposite to which we store

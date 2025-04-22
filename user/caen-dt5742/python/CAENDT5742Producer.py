@@ -29,15 +29,6 @@ from progressreporting.TelegramProgressReporter import SafeTelegramReporter4Loop
 import my_telegram_bots # Here I keep the info from my bots, never make it public!
 # --------------------------------------------------------------------------------------------------------------------------------------------------
 
-DEBUG_WAVEFORMS_DUMPING = False
-LOCATION_FOR_DUMPING_DATA = Path.home()/'Desktop/data'
-if DEBUG_WAVEFORMS_DUMPING:
-    import pandas
-    import datetime
-    
-    def create_a_timestamp():
-        return datetime.datetime.now().strftime("%Y%m%d%H%M")
-
 CAEN_CHANNELS_NAMES = [f'CH{_}' for _ in range(16)] + [f'trigger_group_{_}' for _ in [0,1]]
 
 # Variable to allow the use the real DAQ or a simulation
@@ -78,6 +69,7 @@ def parse_channels_mapping(path_to_channels_mapping_file:Path)->dict:
     return channels_mapping
 
 def decode_trigger_id(trigger_id_waveform:np.ndarray, clock_waveform:np.ndarray, trigger_waveform:np.ndarray, clock_edge_to_use:str)->int:
+    ### XXX -- TO BE REMOVE
     """Decode a trigger ID from a waveform.
     
     Arguments
@@ -150,6 +142,31 @@ class CAENDT5742Producer(pyeudaq.Producer):
             self.is_simulation = False
         
         self._name = name
+                        
+    def _fill_bore(self, event):
+        """Fill the Begin of Run Event with some metadata
+        """
+        event.SetBORE()
+        # Store the mapping of the channels literally as it was parsed.
+        event.SetTag('channels_mapping_str', str(self.channels_mapping))
+        # A set with the channels that were acquired randomly ordered, 
+        # e.g. `{'CH8', 'CH2', 'CH13', 'CH10', 'CH15', 'CH5', 'CH0', 
+        # 'CH1', 'CH3', 'CH4', 'trigger_group_0', 'CH11', 'CH14', 'trigger_group_1', 'CH12', 'CH9'}`.
+        event.SetTag('set_of_active_channels', str(list(self.set_of_active_channels)))
+        # A list with the names of the DUTs.
+        event.SetTag('dut_names', str(self.channels_mapping.keys()))
+        
+        # Several useful info
+        event.SetTag('sampling_frequency_MHz', repr(self._digitizer.get_sampling_frequency()))
+        # Number of samples per waveform to decode the raw data.
+        event.SetTag('n_samples_per_waveform', repr(self._digitizer.get_record_length()))
+        n_dut = 0
+        for dut_name, dut_channels in self.channels_mapping.items():
+            dut_label = f'DUT_{n_dut}' # DUT_0, DUT_1, ...
+            # For each device this tells how the connections were made, e.g. `'CH0:[(0,0),(0,1),(1,0)],CH1:[(3,3)]'`.
+            event.SetTag(dut_name, str(self.channels_mapping[dut_name]).replace('{','').replace('}','').replace(' ','').replace("'",'').replace('"',''))
+            n_dut += 1
+        event.SetTag(f'producer_name', str(self._name))
         
     @exception_handler
     def DoInitialise(self):
@@ -337,15 +354,10 @@ class CAENDT5742Producer(pyeudaq.Producer):
     def RunLoop(self):
         self.events_queue = queue.Queue()
         
-        if DEBUG_WAVEFORMS_DUMPING:
-            this_run_timestamp = create_a_timestamp()
-        
         def thread_target_function():
-            if DEBUG_WAVEFORMS_DUMPING:
-                waveforms_to_dump = []
+            do_bore = True
             n_trigger = 0
             previous_decoded_trigger_id = None
-            have_to_decode_trigger_id = hasattr(self, '_trigger_id_decoding_config')
             decoded_trigger_number_of_turns = 0
             while self.is_running:
                 # -- XXX - THe CHannel will give the information of thee position in x/y of the pad
@@ -355,87 +367,40 @@ class CAENDT5742Producer(pyeudaq.Producer):
                     # Creation of the caen event type and sub-type 
                     # XXX -- Need this new event type, or enough with the RawEvent?
                     event = pyeudaq.Event("RawEvent", "CAENDT5748")
-                    event.SetTriggerN(n_trigger)
+                    # From the event_counter
+                    trigger_counter, raw_event = self.events_queue.get()
+                    # --- Check this trigger_counter, maybe against n_trigger?
+                    event.SetTriggerN(trigger_counter)
+
                     # BORE info
-                    if n_trigger == 0:
-                        event.SetBORE()
-                        # Store the mapping of the channels literally as it was parsed.
-                        event.SetTag('channels_mapping_str', str(self.channels_mapping))
-                        # A set with the channels that were acquired randomly ordered, e.g. `{'CH8', 'CH2', 'CH13', 'CH10', 'CH15', 'CH5', 'CH0', 'CH1', 'CH3', 'CH4', 'trigger_group_0', 'CH11', 'CH14', 'trigger_group_1', 'CH12', 'CH9'}`.
-                        event.SetTag('set_of_active_channels', str(list(self.set_of_active_channels)))
-                        # A list with the names of the DUTs.
-                        event.SetTag('dut_names', str(self.channels_mapping.keys()))
-                        
-                        event.SetTag('sampling_frequency_MHz', repr(self._digitizer.get_sampling_frequency()))
-                        # Number of samples per waveform to decode the raw data.
-                        event.SetTag('n_samples_per_waveform', repr(self._digitizer.get_record_length()))
-                        n_dut = 0
-                        for dut_name, dut_channels in self.channels_mapping.items():
-                            dut_label = f'DUT_{n_dut}' # DUT_0, DUT_1, ...
-                            # For each device this tells how the connections were made, e.g. `'CH0:[(0,0),(0,1),(1,0)],CH1:[(3,3)]'`.
-                            event.SetTag(dut_name, str(self.channels_mapping[dut_name]).replace('{','').replace('}','').replace(' ','').replace("'",'').replace('"',''))
-                            n_dut += 1
-                        
-                        event.SetTag(f'producer_name', str(self._name))
+                    if do_bore::
+                        self._fill_bore(event)
+                        do_bore = False
                     
-                    this_trigger_waveforms = self.events_queue.get()
+                    # FIXME -- Obtain a strong trigger obtention -> from the event_counter
                     n_trigger += 1
                     
-                    for ch in self.set_of_active_channels:
-                        serialized_data = np.array(this_trigger_waveforms[ch]['Amplitude (V)'], dtype=np.float32)
-                        serialized_data = serialized_data.tobytes()
-                        # Use the channel as Block Id
-                        event.AddBlock(self.channels_to_int[ch], serialized_data)
+                    event.AddBlock(0, raw_event)
                         
-                        if DEBUG_WAVEFORMS_DUMPING:
-                            df = pandas.DataFrame(this_trigger_waveforms[ch])
-                            df['channel'] = ch
-                            df['n_trigger'] = n_trigger
-                            waveforms_to_dump.append(df)
-                    
-                    if have_to_decode_trigger_id:
-                        raw_decoded_trigger_id = decode_trigger_id(
-                            trigger_id_waveform = this_trigger_waveforms[self._trigger_id_decoding_config['trigger_id_channel_name']]['Amplitude (V)'],
-                            clock_waveform = this_trigger_waveforms[self._trigger_id_decoding_config['TLU_clock_channel_name']]['Amplitude (V)'],
-                            trigger_waveform = this_trigger_waveforms[self._trigger_id_decoding_config['trigger_channel_names'][0]]['Amplitude (V)'],
-                            clock_edge_to_use = 'falling', # Hardcoded here, but seems to be the right one to use.
-                        )
-                        if raw_decoded_trigger_id == 0 and previous_decoded_trigger_id is not None:
-                            if (previous_decoded_trigger_id+1)%(2**self.n_bits_to_use_when_decoding_trigger_id_from_waveform+1): # if this trigger is supposed to be a multiple of the loop size (given by the number of bits)...
-                                decoded_trigger_number_of_turns += 1
-                        decoded_trigger_id = raw_decoded_trigger_id + (2**self.n_bits_to_use_when_decoding_trigger_id_from_waveform)*decoded_trigger_number_of_turns
-                        if decoded_trigger_id != n_trigger:
-                            EUDAQ_INFO(f'⚠️ The decoded trigger does not coincide with the internally counted triggers. (n_internal={n_trigger}, n_decoded={decoded_trigger_id})')
-                        previous_decoded_trigger_id = decoded_trigger_id
-                        print(decoded_trigger_id==n_trigger, n_trigger)
-                    
                     self.SendEvent(event)
                     self.events_queue.task_done()
             
-            if DEBUG_WAVEFORMS_DUMPING and len(waveforms_to_dump) > 0:
-                waveforms_to_dump = pandas.concat(waveforms_to_dump)
-                waveforms_to_dump.to_pickle(LOCATION_FOR_DUMPING_DATA/f'{this_run_timestamp}_waveforms_CAEN_{str(self._digitizer.get_info()["SerialNumber"])}.pickle')
-            
         threading.Thread(target=thread_target_function, daemon=True).start()
         
-        try:
-            with self._telegram_reporter.report_loop(total_loop_iterations=100000):
-                while self.is_running:
-                    with self._CAEN_lock:
-                        if self._digitizer.get_acquisition_status()['at least one event available for readout'] == True:
-                            wf_start = time.perf_counter()
-                            waveforms = self._digitizer.get_waveforms(get_time=False, get_ADCu_instead_of_volts=False)
-                            wf_end = time.perf_counter()
-                            # Waveforms is a list of dictionaries, each of which contains the waveforms from each trigger.
-                            for this_trigger_waveforms in waveforms:
-                                self.events_queue.put(this_trigger_waveforms)
-                                self._telegram_reporter.update(1)
-                            wf_end_2 = time.perf_counter()
-                            print(f'get_waveform: {(wf_end-wf_start)*1e3:0.4f} [ms]. Total process (including put in queue and telegram: {(wf_end_2-wf_start)*1e3:0.4f} [ms]')
-                    time.sleep(1e-6) # This small delay is so that the lock can be acquired by other threads, otherwise it goes so fast that no one else can acquire it other than by chance.
-        except Exception as e:
-            self._telegram_reporter.send_message(f'🔥🔥 CAEN data acquisition loop failed\n\nReason: {repr(e)}')
-            raise e
+        # XXX -- Threading NEEDED? really?
+        while self.is_running:
+            with self._CAEN_lock:
+                if self._digitizer.get_acquisition_status()['at least one event available for readout'] == True:
+                    wf_start = time.perf_counter()
+                    waveforms = self._digitizer.get_waveforms(get_time=False, get_ADCu_instead_of_volts=False)
+                    wf_end = time.perf_counter()
+                    # Waveforms is a list of dictionaries, each of which contains the waveforms from each trigger.
+                    for this_trigger_waveforms in waveforms:
+                        self.events_queue.put(this_trigger_waveforms)
+                        self._telegram_reporter.update(1)
+                    wf_end_2 = time.perf_counter()
+                    print(f'get_waveform: {(wf_end-wf_start)*1e3:0.4f} [ms]. Total process (including put in queue and telegram: {(wf_end_2-wf_start)*1e3:0.4f} [ms]')
+            time.sleep(1e-6) # This small delay is so that the lock can be acquired by other threads, otherwise it goes so fast that no one else can acquire it other than by chance.
 
 @click.command()
 @click.option('-n','--name', default='CAEN_digitizer',
