@@ -45,7 +45,10 @@ bool NiRawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::Standar
     EUDAQ_WARN("Ignoring bad event " + std::to_string(rawev.GetEventNumber()));
     return false;
   }
-  auto use_all_hits = (conf != nullptr ? bool(conf->Get("use_all_hits",0)) : false);
+  //auto use_all_hits = (conf != nullptr ? bool(conf->Get("use_all_hits",0)) : false);
+  // XXX -- JDC Otherwise looks like only uses 1 frame, not yet understood what is the problem
+  //        but it looks like recovers all the hits
+  auto use_all_hits = true;
 
   const std::vector<uint8_t> &data0 = rawev.GetBlock(0);
   const std::vector<uint8_t> &data1 = rawev.GetBlock(1);
