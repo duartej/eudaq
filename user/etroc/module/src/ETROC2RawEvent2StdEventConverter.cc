@@ -2,6 +2,7 @@
 #include "eudaq/RawEvent.hh"
 
 #include<map>
+#include<set>
 #include<bitset>
 // --- XXX DEBUG --- REMOVE 
 //#include<iomanip>
@@ -44,25 +45,34 @@ std::vector<uint32_t> GetBack_32bWord(const std::vector<uint8_t>& binary_data) {
 
 bool ETROCRawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdEventSP d2, eudaq::ConfigSPC conf) const {
 
+    std::set<uint32_t> chip_id;
+    
+    std::map<uint32_t, std::vector<uint32_t> > eas;
+    std::map<uint32_t, std::vector<uint32_t> > cols;
+    std::map<uint32_t, std::vector<uint32_t> > rows;
+    std::map<uint32_t, std::vector<uint64_t> > toas;
+    std::map<uint32_t, std::vector<uint32_t> > tots;
+    std::map<uint32_t, std::vector<uint32_t> > cals;
+    std::map<uint32_t, std::vector<uint32_t> > l1v;
     // --- XXX DEBUG --- REMOVE 
-    //std::cout << "+++++++++++++++++++++++++ " << std::endl;
+    std::cout << "+++++++++++++++++++++++++ " << std::endl;
     // --- XXX DEBUG --- REMOVE 
     auto ev = std::dynamic_pointer_cast<const eudaq::RawEvent>(d1);
     size_t nblocks= ev->NumBlocks();
     auto block_n_list = ev->GetBlockNumList();
-    // Just one block, each etroc is identified in the header
+    // The block stores each different trigger_range
     for(auto &block_n: block_n_list) {
         std::vector<uint8_t> data_block_uint8 = ev->GetBlock(block_n);
         // Convert back into 32bits words 
         std::vector<uint32_t> raw_data = GetBack_32bWord(data_block_uint8);
         // --- XXX DEBUG --- REMOVE 
-        /*std::cout << "Event: " << ev->GetEventNumber() << std::endl;
+        std::cout << "Event: " << ev->GetEventNumber() << std::endl;
         for(const uint32_t & kk: raw_data) 
         {
             std::cout <<  "[0x" << std::setw(8) << std::setfill('0') << std::hex << kk << "]" << std::endl; 
         }
         std::cout << std::dec;
-        std::cout << "A -- Number of 32b data: " << raw_data.size() << std::endl;*/
+        std::cout << "A -- Number of 32b data: " << raw_data.size() << std::endl;
         // --- XXX DEBUG --- REMOVE 
 
         // Event Header 32bx2 = 64b
@@ -75,7 +85,7 @@ bool ETROCRawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdE
             return false;
         }
         // --- XXX DEBUG --- REMOVE 
-        //std::cout << "B" << std::endl;
+        std::cout << "B" << std::endl;
         // --- XXX DEBUG --- REMOVE 
         // The active ETROCs: [4b:[ch3][ch2][ch1][ch0]]
         const uint16_t event_mask = raw_data[0] & 0xF;
@@ -93,8 +103,8 @@ bool ETROCRawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdE
                 << "]. Advised to re-start the run. " << std::endl;
         }
             
-	/*std::cout << "EH -- event number:" << event_number << ", event type:" << event_type 
-            << ", version:" << firwmare_version << ", event_mask:" << event_mask << std::endl;*/
+	std::cout << "EH -- event number:" << event_number << ", event type:" << event_type 
+            << ", version:" << firwmare_version << ", event_mask:" << event_mask << ", data_words:" << data_words << std::endl;
         // --- XXX DEBUG --- REMOVE 
 
         // The last word is the trailer 32b
@@ -137,7 +147,7 @@ bool ETROCRawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdE
         int element_40b = 0;
             
         // --- XXX DEBUG --- REMOVE 
-        //std::cout << "F" << std::endl;
+        std::cout << "F" << std::endl;
         // --- XXX DEBUG --- REMOVE 
         // Run over the remaining raw data to extract all the data words
         // except the event header (0,1) and the trailer (-1)
@@ -159,29 +169,27 @@ bool ETROCRawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdE
                 counter_40b -= 1;
             }
         }
-	// ETROCs attached to a FPGA boards are going to send all the events in order 
-        uint16_t chip_id = 0;
-
-	std::map<uint16_t, std::vector<uint32_t> > eas;
-	std::map<uint16_t, std::vector<uint32_t> > cols;
-        std::map<uint16_t, std::vector<uint32_t> > rows;
-        std::map<uint16_t, std::vector<uint64_t> > toas;
-        std::map<uint16_t, std::vector<uint32_t> > tots;
-        std::map<uint16_t, std::vector<uint32_t> > cals;
-        std::map<uint16_t, std::vector<uint32_t> > l1counter;
-        // --- XXX DEBUG --- REMOVE 
-        //std::cout << "H, 40bits Data Words size: " << etroc_data_words.size() << std::endl;
+        
+	// --- XXX DEBUG --- REMOVE 
+        std::cout << "H, 40bits Data Words size: " << etroc_data_words.size() << std::endl;
         //    <<  " , " << std::endl;
         // --- XXX DEBUG --- REMOVE 
         // Looking at the data words ot extract hits
         uint32_t current_l1counter = 0;
+        uint32_t curr_eas = 0;
+        uint32_t curr_col = 0;
+        uint32_t curr_row = 0;
+        uint32_t curr_toa = 0;
+        uint32_t curr_tot = 0;
+        uint32_t curr_cal = 0;
+        bool hit_present = false;
         for(auto & current_word_bitset: etroc_data_words) {
             // --- XXX DEBUG --- REMOVE 
-            /*
-            std::cout << "      [0b" << current_word_bitset << "] " << std::endl;
+            
+            //std::cout << "      [0b" << current_word_bitset << "] " << std::endl;
             std::cout << "      [0x" << std::setw(10) << std::setfill('0') << std::hex 
                 << current_word_bitset.to_ulong() << "]" << std::endl; 
-            std::cout << std::dec;*/
+            std::cout << std::dec;
             // --- XXX DEBUG --- REMOVE 
             uint64_t current_word = current_word_bitset.to_ulong();
             // XXX -- FRAME HEADER or FRAME FILLER
@@ -216,13 +224,13 @@ bool ETROCRawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdE
             else if( ((current_word >> 39) & 0x1) == 1 ) {
                 // Look for data XXX -- FIXME What about the other data? See above
                 // [1b: 1][2b: EA][4b: COL][4b: ROW][10b: TOA][9b: TOT][10b: CAL]
-                eas[chip_id].push_back( (current_word >> 37) & 0x3 );
-                cols[chip_id].push_back( (current_word >> 33) & 0xf );
-                rows[chip_id].push_back( (current_word >> 29) & 0xf );
-                toas[chip_id].push_back( (current_word >> 19) & 0x3ff );
-                tots[chip_id].push_back( (current_word >> 10) & 0x1ff );
-                cals[chip_id].push_back( current_word & 0x3ff );
-                l1counter[chip_id].push_back( current_l1counter );
+                curr_eas = (current_word >> 37) & 0x3;
+                curr_col = (current_word >> 33) & 0xf;
+                curr_row = (current_word >> 29) & 0xf;
+                curr_toa = (current_word >> 19) & 0x3ff;
+                curr_tot = (current_word >> 10) & 0x1ff;
+                curr_cal = current_word & 0x3ff;
+                hit_present= true;
 		/*
 		size_t ci = cols[chip_id].size()-1;
             	std::cout << "   +++[DATA] COL: " << cols[chip_id][ci] << " ROW: "<< rows[chip_id][ci] 
@@ -233,51 +241,73 @@ bool ETROCRawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdE
                 // XXX DEBUG --- REMOVE?
                 // XXX -- And FRAME TRAILER?  Any ohter else
                 // [1b:0][17b:ChipId][6b:Status][8B:hits][8b:CRC]
+		
+                const uint32_t etroc_chip_id = (((current_word) >> 22 ) & 0x1FFFF);
+                chip_id.insert(etroc_chip_id);
 
-                /*
+                // Update the hit with the chip-id info, now it's available
+                // if there were some hit
+                if( hit_present ) {
+                    eas[etroc_chip_id].push_back( curr_eas );
+                    cols[etroc_chip_id].push_back( curr_col );
+                    rows[etroc_chip_id].push_back( curr_row );
+                    toas[etroc_chip_id].push_back( curr_toa );
+                    tots[etroc_chip_id].push_back( curr_tot );
+                    cals[etroc_chip_id].push_back( curr_cal );
+                    l1v[etroc_chip_id].push_back( block_n );
+                }
+                // Re-initialize
+                hit_present = false;
 		std::cout << "   ---| FT (CHIP TRAILER) " 
-                    << "ChipID: " << (((current_word) >> 22 ) & 0x1FFFF)  << ", "
+                    << "ChipID: " << etroc_chip_id  << ", "
                     << "STATuS:" << (((current_word) >> 16 ) & 0x3F)  << ", "
                     << "Hits: " << (((current_word) >> 8) & 0xFF) << ", "
                     << "CRC: " << ((current_word) & 0xFF) << ", "
-                    << std::endl;*/
+                    << std::endl;
                 // XXX DEBUG --- REMOVE
-		chip_id++;
                 continue;
             }
         }
 
-        // Found (chip_id-1) ETROCs
-	for(uint16_t  etroc_id = 0; etroc_id < chip_id; ++etroc_id) {
-            eudaq::StandardPlane plane(etroc_id, "ETROC", "ETROC");
-            // col, rows, npixels?, frames (l1)
-            plane.SetSizeZS(16, 16, 0, 1);
-            //plane.SetSizeZS(16, 16, 0, 3, --< Not needed, probably with 3 is enough 
-            //        StandardPlane::FLAG_DIFFCOORDS | StandardPlane::FLAG_ACCUMULATE );
-            if( eas.find(etroc_id) != eas.end() ) {
-                for(size_t i = 0; i < eas[etroc_id].size(); ++i) {
-                    // XXX --- IT doens't work using the frame... why??
-                    // l1counter should be there because data is therea
-                    // plane.PushPixel(cols[i],rows[i] , tots[i], toas[i], false, l1counter[i]);
-                    plane.PushPixel(cols[etroc_id][i],rows[etroc_id][i] , tots[etroc_id][i], uint32_t(0));
-                    // TOA_CODE:CAL_CODE
-                    plane.SetPixelAuxInfo(i, std::to_string(toas[etroc_id][i])+":"+std::to_string(cals[etroc_id][i]));
-                }
-            }
-            d2->AddPlane(plane);
-	}
         // --- XXX DEBUG --- REMOVE 
-	/* 
         std::cout << "ET -- hits count:" << hits_count << ", overflow:" << overflow_count
             << ", hamming:" << hamming_count << ", crc:" << crc << std::endl;
         std::cout << "|=====================================================================" 
-		<< "==========================|" << std::endl;*/
+		<< "==========================|" << std::endl;
         // --- XXX DEBUG --- REMOVE 
         //
     }
+
     // --- XXX DEBUG --- REMOVE 
-    //std::cout << "\nI" << std::endl;
+    std::cout << "I" << std::endl;
     // --- XXX DEBUG --- REMOVE 
+    for(auto & etroc_id: chip_id) {
+        // --- XXX DEBUG --- REMOVE 
+        std::cout << "ETROC-CHIP-ID: " << etroc_id << ", Hits found: " << eas[etroc_id].size() 
+            << std::endl;
+        std::cout << "|=====================================================================" 
+		<< "==========================|" << std::endl;
+        // --- XXX DEBUG --- REMOVE 
+        eudaq::StandardPlane plane(etroc_id, "ETROC", "ETROC");
+        // col, rows, npixels, frames (l1)
+        plane.SetSizeZS(16, 16, 0, 16,
+                              eudaq::StandardPlane::FLAG_DIFFCOORDS | eudaq::StandardPlane::FLAG_ACCUMULATE );
+        for(size_t i = 0; i < eas[etroc_id].size(); ++i) {
+	    std::cout << cols[etroc_id][i] << std::endl;
+            plane.PushPixel(cols[etroc_id][i],
+                             rows[etroc_id][i], 
+                             tots[etroc_id][i], 
+                             toas[etroc_id][i], 
+                             false, 
+                             // l1v[etroc_id][i]); --> XXX Don't understand why it's get stuck ..
+			     0);
+            // TOA_CODE:CAL_CODE
+            plane.SetPixelAuxInfo(i, std::to_string(toas[etroc_id][i])+":"+std::to_string(cals[etroc_id][i]));
+        }
+	std::cout << " BEFORE --" << std::endl;
+        d2->AddPlane(plane);
+	std::cout << " AFTER --" << std::endl;
+    }
 
     return true;
 }
