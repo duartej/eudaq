@@ -12,6 +12,7 @@
 #include <regex>
 #include <numeric>
 #include <cmath>
+#include <iterator>
 
 // Digitizer: { channel : [ (row, col), (row, col), ... ], 
 // Each channel can be bounded to several diodes/pixels
