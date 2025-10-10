@@ -17,7 +17,7 @@ from typing import List, Dict
 import numpy as np
 
 ### Need extern as path to import MSOCOntroller?
-from MSOCController import MSOController
+from MSOController import MSOController
 
 import pyeudaq
 from pyeudaq import EUDAQ_INFO, EUDAQ_ERROR
@@ -44,10 +44,11 @@ INIT_PARAMETERS = {
             type = int
             ),
         }
+
 CONFIG_PARAMETERS = {
         "record_length": dict(
             # samples per frame
-            default = 10000,
+            default = 2500,
             type = int
             ), 
         "bytes_per_point": dict(
@@ -58,57 +59,72 @@ CONFIG_PARAMETERS = {
         "channels": dict(
             # list of channels to read
             default = [1, 2, 3, 4],
+            type = list
             ),
         "n_frames": dict(
             # frames expected per spill, adjust to R* T_spill
             default = 3000,
             type = int
-            )
+            ),
+        # XXX TO BE DEPRECATED?
         "queue_maxsize": dict(
             # max number of queue items (frame, channel tuples)
             default = 20000,
             type = int
             ),
+        # XXX TO BE DEPRECATED?
         "post_acq_processing_s" : dict(
             default = 0.03,
             type = float
-            )
+            ),
+        "scale_V": dict(
+            default = 100e3
+            type = float
+            ),
+        "t_div_s": dict(
+            default = 10e-9
+            type = float
+            ),
+        "t_delay": dict(
+            default = 20
+            type = float
+            ),
         "log_level": dict(
             default = logging.INFO
-            )
+            type = int 
+            ),
         }
 
-def parse_configs(class_to_decorate, config_dict, external_conf):
+def parse_config(obj, config_schema, external_conf):
     """
     Parameters
     ---------
     """
-    for param_name, param_dict in config_dict.items():
+    for param_name, param_meta in config_schema.items():
         try:
             received_param = external_conf[param_name]
         except KeyError:
             # No presence, then use default
-            received_param = param_dict.get("default")
+            received_param = param_meta.get("default")
 
         # Convert to the proper data type
+        t = param_meta.get("type")
         try:
-             param_value = param_dict['type'](received_param)
-        except KeyError:
-            pass
+            param_value = t(received_param)
         except Exception as e:
-            EUDAQ_ERROR(f"The parameter {param_name} must be of type `{param_dict['type']"})
+            EUDAQ_ERROR(f"The parameter {param_name} must be of type `{t}`: got {type(received_param)}"})
 
         # Add the parameter to the class
-        setattr(class_to_decorate,param_name, param_value)
+        setattr(obj,param_name, param_value)
 
 
 # ----------------------------
 # Logging
 # ----------------------------
-logger = logging.getLogger("TekScopeProducer")
-logger.setLevel(CONFIG.LOG_LEVEL)
+logger = logging.getLogger("MSO6BProducer")
+logger.setLevel(logging.INFO)
 hd = logging.StreamHandler(sys.stdout)
-hd.setLevel(CONFIG.LOG_LEVEL)
+hd.setLevel(logging.INFO)
 fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
 hd.setFormatter(fmt)
 logger.addHandler(hd)
@@ -122,8 +138,8 @@ class FrameReader(threading.Thread):
     When done, puts a sentinel None into the queue to indicate end-of-burst.
     """
 
-    def __init__(self, controller: MSOController, 
-                 controller_lock: threading.Lock,
+    def __init__(self, producer: pyeudaq.Producer , controller: MSOController, 
+                 ctrl_lock: threading.Lock,
                  data_queue: queue.Queue, 
                  n_frames: int, channels: 
                  List[int],
@@ -131,8 +147,9 @@ class FrameReader(threading.Thread):
                  bytes_per_point: int):
         # Initialize 
         super().__init__(daemon=True)
+        self.producer = producer
         self.ctrl = controller
-        self.ctrl_lock = controller_lock
+        self.ctrl_lock = ctrl_lock
         self.queue = data_queue
         self.n_frames = int(n_frames)
         self.channels = list(channels)
@@ -155,30 +172,60 @@ class FrameReader(threading.Thread):
             # Start data dump
             logger.info("Frame acquisition complete, buffering out data from oscilloscope")
             # Extract and dump-frames from the scope iterate frame
-            for frame in range(1, self.n_frames + 1):
-                if self._stop.is_set():
-                    logger.info(f"FrameReader stopping early at frame {frame}")
-                    break
-                for ch in self.channels:
-                    try:
-                        with self.ctrl_lock:
-                            # no conversion, just binary 
-                            raw_data = self.ctrl.read_frame_channelch, frame)
-                        if len(raw_data) == 0:
-                            logger.warning(f"Empty read for frame-%{frame} in CH-{ch}")
-                        # FIXME -- Check the record lenght?
-                        # put into queue (block if full)
-                        self.queue.put((frame, ch, raw_data), block=True)
-                    except Exception as e:
-                        logger.exception(f"Error reading frame-{frame} in CH-{ch}: {e}")
-                        # On error, continue or optionally push an error marker
-                # signal end-of-burst
-                self.queue.put(None)
-                logger.info("FrameReader finished and placed sentinel in queue.")
-                # Activate again the triggers, note
-                self.producer.clear_busy()
-
+            for ch in self.channels:
+                with self.ctrl_lock:
+                    # no conversion, just binary 
+                    raw_data = self.ctrl.read_all_frame_channel(ch)
+                    if len(raw_data) == 0:
+                        logger.warning(f"Empty read for frame-%{frame} in CH-{ch}")
+                    # FIXME -- Check the record lenght?
+                    # put into queue (block if full
+                    # XXX ?? self.queue.put((0, ch, raw_data.tobytes()))
+                    self.queue.put((0, ch, raw_data), block=True)
+            self.queue.put(None)
+            logger.info("FrameReader finished and placed sentinel in queue.")
+            # Activate again the triggers, note in RUNSTOP mode the acquistion will resume immediately
+            # XXX In SEQUENCE mode, you need the self.producer.arm_acquisition
+            self.ctrl.clear_busy()
         logger.info("FrameReader run finished...")
+
+    #def run(self):
+    #    """The actual reading
+    #    """
+    #    logger.info("FrameReader starting: reading %d frames x channels %s", self.n_frames, self.channels)
+    #    # Read preambles per channel (if scaling)
+    #    while self.producer._running:
+    #        # wait for scope to finish capturing all frames
+    #        with self.ctrl_lock:
+    #            self.ctrl.wait_complete()
+    #        # Start data dump
+    #        logger.info("Frame acquisition complete, buffering out data from oscilloscope")
+    #        # Extract and dump-frames from the scope iterate frame
+    #        for frame in range(1, self.n_frames + 1):
+    #            if self._stop.is_set():
+    #                logger.info(f"FrameReader stopping early at frame {frame}")
+    #                break
+    #            for ch in self.channels:
+    #                try:
+    #                    with self.ctrl_lock:
+    #                        # no conversion, just binary 
+    #                        raw_data = self.ctrl.read_frame_channelch, frame)
+    #                    if len(raw_data) == 0:
+    #                        logger.warning(f"Empty read for frame-%{frame} in CH-{ch}")
+    #                    # FIXME -- Check the record lenght?
+    #                    # put into queue (block if full)
+    #                    self.queue.put((frame, ch, raw_data), block=True)
+    #                except Exception as e:
+    #                    logger.exception(f"Error reading frame-{frame} in CH-{ch}: {e}")
+    #                    # On error, continue or optionally push an error marker
+    #            # signal end-of-burst
+    #            self.queue.put(None)
+    #            logger.info("FrameReader finished and placed sentinel in queue.")
+    #            # Activate again the triggers, note in RUNSTOP mode the acquistion will resume immediately
+    #            # XXX In SEQUENCE mode, you need the self.producer.arm_acquisition
+    #            self.ctrl.clear_busy()
+
+    #    logger.info("FrameReader run finished...")
 
 class EudaqEventSender(threading.Thread):
     """Consumes queue items and builds EUDAQ events per frame.  
@@ -198,24 +245,56 @@ class EudaqEventSender(threading.Thread):
 
     def run(self):
         logger.info("EudaqEventSender started.")
-        while producer._running:
+        while self.producer._running:
             item = self.queue.get()
             if item is None:
                 logger.info("EudaqEventSender got sentinel; finishing.")
                 self._flush_remaining()
                 break
             frame_idx, ch, raw_data = item
-            if frame_idx not in self.framebuf:
-                self.framebuf[frame_idx] = {}
-            self.framebuf[frame_idx][ch] = raw_data
-            # if we have all channels for this frame, send event
-            if all(c in self.framebuf[frame_idx] for c in self.channels):
-                try:
-                    self._send_frame_event(frame_idx, self.framebuf[frame_idx])
-                except Exception as e:
-                    logger.exception(f"Failed to send event for frame-{frame_idx}: {e}")
-                del self.framebuf[frame_idx]
+            # Check the expected size of the n-frames
+            if len(raw_data) != self.producer.frame_size:
+                logger.warning(f"Expected {self.producer.frame_size} bytes, got {len(raw_data)}")
+                n_frames = len(raw_data) // (self.producer.record_length * self.producer.bytes_per_point)
+            else:
+                n_frames = self.producer.n_frames
+
+            for i in range(n_frames):
+                frame_idx = i + 1
+                if (frame_idx) not in self.framebuf:
+                    self.framebuf[frame_idx] = {}
+                start = i * self.producer.frame_size 
+                end   = start + self.producer.frame_size
+                self.framebuf[frame_idx][ch] = raw_data[start:end]
+                # if we have all channels for this frame, send the event
+                if all(c in self.framebuf[frame_idx] for c in self.channels):
+                    try:
+                        self._send_frame_event(frame_idx, self.framebuf[frame_idx])
+                    except Exception as e:
+                        logger.exception(f"Failed to send event for frame-{frame_idx}: {e}")
+                    del self.framebuf[frame_idx]
         logger.info("EudaqEventSender exiting.")
+
+    #def run(self):
+    #    logger.info("EudaqEventSender started.")
+    #    while self.producer._running:
+    #        item = self.queue.get()
+    #        if item is None:
+    #            logger.info("EudaqEventSender got sentinel; finishing.")
+    #            self._flush_remaining()
+    #            break
+    #        frame_idx, ch, raw_data = item
+    #        if frame_idx not in self.framebuf:
+    #            self.framebuf[frame_idx] = {}
+    #        self.framebuf[frame_idx][ch] = raw_data
+    #        # if we have all channels for this frame, send event
+    #        if all(c in self.framebuf[frame_idx] for c in self.channels):
+    #            try:
+    #                self._send_frame_event(frame_idx, self.framebuf[frame_idx])
+    #            except Exception as e:
+    #                logger.exception(f"Failed to send event for frame-{frame_idx}: {e}")
+    #            del self.framebuf[frame_idx]
+    #    logger.info("EudaqEventSender exiting.")
 
     def _send_frame_event(self, frame_idx: int, frame_data: Dict[int, tuple]):
         """Build and send one EUDAQ event corresponding to frame_idx.
@@ -284,7 +363,9 @@ class MSO6BProducer(pyeudaq.Producer):
         conf = self.GetConfiguration().as_dict()
         # Update the class with the mandatory configuration
         parse_config(self, CONFIG_PARAMETERS, conf)
-
+        
+        # OBtain the size of a block per frame (we have this info after config)
+        self.frame_size = self.record_length * self.bytes_per_point
         # controller methods are synchronous; protect them with visa_lock
         with self.ctrl_lock:
             #Always in a know state
@@ -292,7 +373,7 @@ class MSO6BProducer(pyeudaq.Producer):
             # Need to configure the basic XXX 
             # And configure the fastframe
             self.ctrl.configure_fastframe_acq(record_length=self.record_length,
-                                              bpp: self.bytes_per_point,
+                                              bpp = self.bytes_per_point,
                                               n_frames=self.n_frames,
                                               trigger_source="EXT")
             # Check is ready
@@ -306,7 +387,7 @@ class MSO6BProducer(pyeudaq.Producer):
     @exception_handler
     def DoStartRun(self):
         with self.ctrl_lock:
-            self.arm_acquisition()
+            self.ctrl.arm_acquisition()
         self._running = True
 
     @exception_handler
@@ -338,7 +419,7 @@ class MSO6BProducer(pyeudaq.Producer):
         self._running = False
 
     @exception_handler
-    def DoLoop(self)
+    def DoLoop(self):
         """
         """
         self.n_trigger = 0
@@ -351,8 +432,8 @@ class MSO6BProducer(pyeudaq.Producer):
 
         # Then acquisition of the frames 
         # create and start reader (producer) thread
-        self.reader = FrameReader(controller=self.ctrl,
-                                  crtl_lock=self.ctrl_lock,
+        self.reader = FrameReader(producer =self, controller=self.ctrl,
+                                  ctrl_lock=self.ctrl_lock,
                                   data_queue=self.data_q,
                                   n_frames=self.n_frames,
                                   channels=self.channels,
@@ -362,9 +443,6 @@ class MSO6BProducer(pyeudaq.Producer):
         self.reader.start()
         
 
-
-
-
         # Wait for reader and sender to finish
         logger.info("Waiting for reader thread to finish (this may take time depending on data volume).")
         self.reader.join()
@@ -372,36 +450,19 @@ class MSO6BProducer(pyeudaq.Producer):
         self.eudaq_sender.join()
         logger.info("Burst processing (read+send) finished.")
 
-# ----------------------------
-# Example / test flow
-# ----------------------------
-def main_demo():
-    """
-    Demo script:
-      - constructs producer
-      - configures scope
-      - simulates a single spill (sleep)
-      - calls end_spill to read and send frames
-    Use real TLU/spill monitor to trigger start_spill() and end_spill() in production.
-    """
-    cfg = CONFIG
-    prod = TekScopeProducer(cfg)
-    try:
-        prod.configure_for_run()
-        logger.info("Arming for a demo spill in 2 seconds...")
-        time.sleep(2.0)
-        prod.start_spill()
-        # simulate spill duration (real run: TLU will be producing triggers)
-        simulated_spill = 3.5
-        logger.info("Simulated spill running for %.2f s", simulated_spill)
-        time.sleep(simulated_spill)
-        # end of spill -> read frames and send events
-        prod.end_spill()
-        logger.info("Demo completed.")
-    except KeyboardInterrupt:
-        logger.info("Interrupted.")
-    finally:
-        prod.stop()
+@click.command()
+@click.option('-n','--name', default='scope_mso6b',
+              help='Name for the producer (default "scope_mso6b")')
+@click.option('-r','--runctrl',default='tcp://localhost:44000',
+              help='Address of the run control, for example (and default) "tcp://localhost:44000"')
+def main(name,runctrl):
+    producer = MSO6BProducer(name,runctrl)
+    EUDAQ_INFO(f"[MSO6BProducer]: Connecting to runcontrol in {runctrl} ...")
+    producer.Connect()
+    time.sleep(2)
+    print('[MS06BProducer]: Connected')
+    while(producer.IsConnected()):
+        time.sleep(1)
 
 if __name__ == "__main__":
-    main_demo()
+    main()
