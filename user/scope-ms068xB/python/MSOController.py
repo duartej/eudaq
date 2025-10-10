@@ -191,6 +191,31 @@ class MSOController:
     def set_channel_scale(self, channel, val):
         return self.write(f'CH{channel}:SCALE {val}')
 
+    # Max-available frames
+    @property
+    def max_available_frames(self, safety_factor = 0.96):
+        """Calculates the maximum number of frames taking into account:
+            - the scope is able to get 62.5M points
+            - assume the total number of points must be splitted between channels
+
+        Parameters
+        ----------
+        safety_factor: float
+            A value between [1 - 0( to be safe 
+        """
+        TOTAL_PTS = 62500000
+        activated_channels = sum(map(lambda x: int(x), s.query('SELECT?').split(';')[4:]))
+        if activated_channels < 1:
+            logger.warning('No active channels. Ignore request')
+            return 0
+        pts_per_ch = TOTAL_PTS // activated_channels
+        n_frames = int(pts_per_ch // self.record_length)
+        n_frames_safe = int( n_frames * float(safety_factor) )
+
+        # This is equivalent to HORizontal:FASTframe:MAXFRames? XXX 
+
+        return n_frames_safe
+
     # -------------------
     # SCPI helpers
     # -------------------
@@ -219,8 +244,7 @@ class MSOController:
         return self.dev.query(q)
 
     def query_binary(self, q: str) -> bytes:
-        """Send a SCPI query command returning binary. Use it when the scope returns 
-        a binary block
+        """Send a  returning binary block from CURVE?. 
 
         Parameter
         ---------
@@ -231,9 +255,11 @@ class MSOController:
         ------
         Bytes
         """
-        # XXX - FIXME -  Are these correct? probably will depends on the BYT_NR and the BY_FMT
-        # XXX -- FIXME, do that
-        return self.dev.query_binary_values(q, datatype='B', container=bytes, header_fmt='ieee')
+        pre = self.wf_preamble
+        bytes_per_point = int(pre.get("BYT_NR",1))
+        datatype = 'H' if bytes_per_point == 2 else 'B'
+
+        return self.dev.query_binary_values(q, datatype=datatype, container=bytes, header_fmt='empty')
 
     # -------------------
     # AFG Functions
@@ -337,8 +363,9 @@ class MSOController:
         # The number of bytes per point
         self.write(f"WFMOutpre:BYT_Nr {bpp}")
         # The oscilloscope will start to acquire as soon as possible 
-        # (for instance, after a CURVE?, just when finish)
-        self.write("ACQuire:STOPAfter RUNSTOP")
+        # (for instance, after a CURVE?, just when finish) --> BUT
+        #self.write("ACQuire:STOPAfter RUNSTOP")
+        self.write("ACQuire:STOPAfter SEQUENCE")
         # display streaming off to increase speed
         self.write("DISPLAY:WAVEFORM OFF")
         # The trigger configuration  (wait for a regular trigger event)
@@ -446,7 +473,7 @@ class MSOController:
     # -------------------
     # Waveform fetch
     # -------------------
-    def read_channel(
+    def read_frame_channel(
             self,
             channel: int,
             frame: int
@@ -473,6 +500,71 @@ class MSOController:
         self.ctrl.write(f"DATa:FRAMESTOP {self.n_frames}")
 
         return self.dev.query_binary("CURVe?")
+
+    def read_all_frame_channel(
+            self,
+            channel: int,
+            ) -> bytes:
+        """
+        Read all FastFrame segments for one channel and returns the bytes
+        without any processing
+
+        Parameters
+        ----------
+        channel : int
+            Channel number (1-based).
+
+        Return
+        ------
+        bytes: The waveform
+        """
+        self.write(f"DATa:SOUrce CH{int(channel)}")
+        self.write(f"DATa:START 1")
+        self.write(f"DATa:STOP {self.record_length}")
+        self.write(f"DATa:FRAMESTART 1")
+        self.write(f"DATa:FRAMESTOP {self.n_frame}")
+        
+        # FIXME -- query_binary o query solo
+        return self.query_binary("CURVe?")
+
+    def read_frame_channel_numpy(
+            self,
+            channel: int,
+            frame: int,
+            ) -> np.ndarray:
+        """
+        Read one FastFrame segment for one channel.
+
+        Returns the raw integer samples (int8 or int16).
+
+        Parameters
+        ----------
+        channel : int
+            Channel number (1-based).
+
+        Return
+        ------
+        np.narray: The waveform
+        """
+        self.write(f"DATa:SOUrce CH{int(channel)}")
+        self.write(f"DATa:START 1")
+        self.write(f"DATa:STOP {self.record_length}")
+        self.write(f"DATa:FRAMESTART {frame}")
+        self.write(f"DATa:FRAMESTOP {frame}")
+        
+        pre = self.wf_preamble
+        bytes_per_point = int(pre.get("BYT_NR",1))
+        # Choose data type for query_binary_values (singedness depends on BN_FMT)
+        # bpp = 1 --> signed 8-bit (B) then np.int8, bpp = 2 --> signed 16-bit (H), np.int16
+        datatype = 'H' if bytes_per_point == 2 else 'B'
+        dtype = np.int16 if bytes_per_point == 2 else np.int8
+        try:
+            # XXX--- is_bin_endian depening BYT_OR and BN_FMT
+            data = self.dev.query_binary_values("CURVe?", datatype=datatype, container=list, header_fmt='ieee')
+            return np.asarray(data, dtype=dtype)
+        except Exception as e:
+            logger.error("Error reading frame %d ch %d: %s", frame_index, channel, e)
+            return np.zeros(0, dtype=dtype)
 
     def read_frame_channel(
             self,
