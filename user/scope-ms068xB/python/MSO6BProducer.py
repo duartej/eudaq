@@ -78,8 +78,8 @@ CONFIG_PARAMETERS = {
             type = float
             ),
         "scale_V": dict(
-            default = 100e3
-            type = float
+            default = [ 100e3, 100e3, 100e3, 100e3],
+            type = list
             ),
         "t_div_s": dict(
             default = 10e-9
@@ -174,7 +174,7 @@ class FrameReader(threading.Thread):
             # Extract and dump-frames from the scope iterate frame
             for ch in self.channels:
                 with self.ctrl_lock:
-                    # no conversion, just binary 
+                    # no conversion, just binary , it returns a list (a raw binary data per frame)
                     raw_data = self.ctrl.read_all_frame_channel(ch)
                     if len(raw_data) == 0:
                         logger.warning(f"Empty read for frame-%{frame} in CH-{ch}")
@@ -244,6 +244,8 @@ class EudaqEventSender(threading.Thread):
         self._stop.set()
 
     def run(self):
+        """
+        """
         logger.info("EudaqEventSender started.")
         while self.producer._running:
             item = self.queue.get()
@@ -251,67 +253,61 @@ class EudaqEventSender(threading.Thread):
                 logger.info("EudaqEventSender got sentinel; finishing.")
                 self._flush_remaining()
                 break
-            frame_idx, ch, raw_data = item
-            # Check the expected size of the n-frames
-            if len(raw_data) != self.producer.frame_size:
-                logger.warning(f"Expected {self.producer.frame_size} bytes, got {len(raw_data)}")
-                n_frames = len(raw_data) // (self.producer.record_length * self.producer.bytes_per_point)
-            else:
-                n_frames = self.producer.n_frames
+            frame_idx, ch, raw_data_list = item
+            # Check the expected number of n-frames
+            if len(raw_data_list) != self.n_frames:
+                logger.warning(f"Expected {self.producer.n_frames} bytes, got {len(raw_data_list)}")
 
+            # Let's build all the data from frame idx. Need to obtain all channels
             for i in range(n_frames):
                 frame_idx = i + 1
                 if (frame_idx) not in self.framebuf:
                     self.framebuf[frame_idx] = {}
-                start = i * self.producer.frame_size 
-                end   = start + self.producer.frame_size
-                self.framebuf[frame_idx][ch] = raw_data[start:end]
-                # if we have all channels for this frame, send the event
+                # This must be in teh converter!!!
+                #if len(raw_data_list) != self.producer.frame_size:
+                #    logger.warning(f"Expected {self.producer.frame_size} bytes, got {len(raw_data_list)}")
+                #    n_frames = len(raw_data) // (self.producer.record_length * self.producer.bytes_per_point)
+                #else:
+                #    n_frames = self.producer.n_frames
+                self.framebuf[frame_idx][ch] = raw_data_list[i]
+                # if we have all channels for this frame, send the event, if 
+                # not just next iteration, it should be in the queue
                 if all(c in self.framebuf[frame_idx] for c in self.channels):
                     try:
-                        self._send_frame_event(frame_idx, self.framebuf[frame_idx])
+                        self._send_frame_event(self.framebuf[frame_idx])
                     except Exception as e:
                         logger.exception(f"Failed to send event for frame-{frame_idx}: {e}")
                     del self.framebuf[frame_idx]
         logger.info("EudaqEventSender exiting.")
 
-    #def run(self):
-    #    logger.info("EudaqEventSender started.")
-    #    while self.producer._running:
-    #        item = self.queue.get()
-    #        if item is None:
-    #            logger.info("EudaqEventSender got sentinel; finishing.")
-    #            self._flush_remaining()
-    #            break
-    #        frame_idx, ch, raw_data = item
-    #        if frame_idx not in self.framebuf:
-    #            self.framebuf[frame_idx] = {}
-    #        self.framebuf[frame_idx][ch] = raw_data
-    #        # if we have all channels for this frame, send event
-    #        if all(c in self.framebuf[frame_idx] for c in self.channels):
-    #            try:
-    #                self._send_frame_event(frame_idx, self.framebuf[frame_idx])
-    #            except Exception as e:
-    #                logger.exception(f"Failed to send event for frame-{frame_idx}: {e}")
-    #            del self.framebuf[frame_idx]
-    #    logger.info("EudaqEventSender exiting.")
-
-    def _send_frame_event(self, frame_idx: int, frame_data: Dict[int, tuple]):
+    def _send_frame_event(self, frame_data: Dict[int, bytes]):
         """Build and send one EUDAQ event corresponding to frame_idx.
         The EUDAQ API varies by installation â€” adapt these lines to your setup.
 
         Parameters
         ----------
+        frame_data: dict(int, bytes)
+            The binary raw data spit by channels
         """
         # Create RawDataEvent and add blocks per channel
         ev = pyeudaq.Event("RawEvent","MSO6B")
         ev.SetTriggerN(self.producer.n_trigger)
         if self.producer.n_trigger == 0:
             ev.SetBORE()
-            ev.SetTag(f'producer_name', str(self.producer._name))
+            ev.SetTag('producer_name', str(self.producer._name))
+            ch_str = ','.join( [str(ch) for ch in self.producer.channel] )
+            ev.SetTag('channels', ch_str)
+            ev.SetTag('dt', str(self.producer.wf_preamble[0]["XINCR"]))
+            ev.SetTag('t0', str(self.producer.wf_preamble[0]["XZERO"]))
+            ev.SetTag('sampled_points', str(self.producer.record_length))
+            for ch in self.producer.channel:
+                ev.SetTag(f'channel{ch}_dv', str(self.producer.wf_preamble[ch]["YMULT"]))
+                ev.SetTag(f'channel{ch}_v0', str(self.producer.wf_preamble[ch]["YZERO"]))
+                ev.SetTag(f'channel{ch}_voffset', str(self.producer.wf_preamble[ch]["YOFF"]))
+
         # AddBlock expects bytes; label it by channel
-        for ch in sorted(frame_data.keys()):
-            ev.AddBlock(ch, frame_data[ch])
+        for ch,raw_data in sorted(frame_data.items()):
+            ev.AddBlock(ch, raw_data)
         # Update trigger 
         self.producer.n_trigger += 1 
         # Send event
@@ -326,7 +322,7 @@ class EudaqEventSender(threading.Thread):
         logger.warning(f"Flushing {len(self.framebuf} incomplete frames")
         for fidx in sorted(self.framebuf.keys()):
             try:
-                self._send_frame_event(fidx, self.framebuf[fidx])
+                self._send_frame_event(self.framebuf[fidx])
             except Exception:
                 logger.exception("Error flushing frame-{fidx}")
 
@@ -370,7 +366,17 @@ class MSO6BProducer(pyeudaq.Producer):
         with self.ctrl_lock:
             #Always in a know state
             self.ctrl.reset()
-            # Need to configure the basic XXX 
+            # Need to configure the basic 
+            self.ctrl.preconfig(
+                    active_channels = self.channels,
+                    scale = self.scale_V,
+                    t_div = self.t_div_s
+                    t_delay = self.t_delay, 
+                    trigger_source = "EXT",
+                    trigger_level  = 0.5,
+                    record_length  = self.record_length,
+                    bpp = self.bytes_per_point)
+            time.sleep(0.01)
             # And configure the fastframe
             self.ctrl.configure_fastframe_acq(record_length=self.record_length,
                                               bpp = self.bytes_per_point,
@@ -378,9 +384,9 @@ class MSO6BProducer(pyeudaq.Producer):
                                               trigger_source="EXT")
             # Check is ready
             self.ctrl.is_trigger_ready()
-            # We can extract the preamble to 
+            # Set the preamble (to extract conversion factors, etc...)
             for ch in self.channels:
-                    self.ctrl.write(f"DATa:SOUrce CH{ch}")
+                    #self.ctrl.write(f"DATa:SOUrce CH{ch}")
                     self.wf_preamble[ch] = self.ctrl.wf_preamble()
         logger.info("Scope configured.")
 
