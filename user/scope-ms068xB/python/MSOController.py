@@ -38,6 +38,8 @@ PREAMBLE_ORDERED_LIST = ["BYT_NR", # Byte per point, i.e. the binary field data 
                          "BN_FMT", # Binary data format (RI|RP|FP: signed int|positive int|floating
                          "ASC_FMT",# The format (INTEGER, FP)
                          "BYT_OR", # Which binary byte is transmitted first (MSB or LSB)
+                         "WFID",   # String with acquisition parameter of the WF see DATA:SOUrce
+                                   # --
                          "NR_PT",  # Number of points to be transmited XXX 
                          "PT_FMT", # Point format for the waveform XXX 
                          "PT_ORDER",# Always LINEAR
@@ -57,6 +59,7 @@ PREAMBLE_ORDERED_LIST = ["BYT_NR", # Byte per point, i.e. the binary field data 
                          "RESAMPLE", # 1 - Every sample is returned (2 - everty other sample, ...)
                          "MODE",    # ...
                          ]
+WFID_FIELDS = [ "SOURCE", "COUPLING", "VERTSCALE", "HORIZSCALE","RECORDLENGTH", "ACQUISITIONMODE"]
                          
 
 def _header_list_to_dict(result_str):
@@ -79,7 +82,7 @@ class MSOController:
         Parameters
         ----------
         resource_string: example "USB0::0x0699::0x0522::123456::INSTR"
-                         o "TCPIP::192
+                         o "TCPIP::192.168.5.12::INSTR"
         timeout_ms: int 
             Read timeout in ms (adjust depending on record length)
         """
@@ -140,16 +143,26 @@ class MSOController:
 
     def reset(self):
         """Reset the scope, may take several seconds
+        Note to re-enable channels (self.write('SELECT:CH<X>' or call preconfig)
         """
         self.write('*RST')
+        self.write('*CLS;CLEAR')
         # Wait to finish the reset
         _ = self.query('*OPC?')
         # Set a pre-defined configuration
         # And re-activate all channels
-        self.write(f':SELECT:CH1 ON;:SELECT:CH2 ON;:SELECT:CH3 ON;:SELECT:CH4 ON')
+        #self.write(f':SELECT:CH1 ON;:SELECT:CH2 ON;:SELECT:CH3 ON;:SELECT:CH4 ON')
     
     # Some useful accessors 
     # TRIGGER group
+    @property
+    def trigger_edge_source(self):
+        return self.query('TRIGger:A:EDGE:SOUrce?')
+
+    @trigger_edge_source.setter
+    def trigger_edge_source(self,source):
+        self.write(f'TRIGger:A:EDGE:SOUrce {source}')
+
     @property
     def trigger_state(self):
         self._trigger_state = self.query('TRIGger:STATE?')
@@ -158,16 +171,21 @@ class MSOController:
     def is_trigger_ready(self):
         return self._trigger_state == 'READY'
 
-    def set_edge_trigger_source(self,source):
-        self.write(f'TRIGger:A:EDGE:SOUrce {source}')
-    
     @property
     def trigger_level(self):
-        return self.query('TRIGger:A:LEVel?')
+        if self.trigger_edge_source == 'AUX':
+            return self.query('TRIGger:AUXLevel?')
+        else:
+            return float(self.query(f'TRIGger:A:LEVel:{self.trigger_edge_source}?'))
 
     @trigger_level.setter
     def trigger_level(self, value):
-        self.write(f'TRIGger:A:LEVel {value}')
+        """ Note if AUX is the trigger_edge_source -> str (RISE, FALL or EITHER)
+        """
+        if self.trigger_edge_source == 'AUX':
+            self.write(f'TRIGger:AUXLevel {value}')
+        else:
+            self.write(f'TRIGger:A:LEVel:{self.trigger_edge_source} {value}')
     
     @property
     def trigger_slope(self):
@@ -177,6 +195,35 @@ class MSOController:
     def trigger_slope(self, value):
         # valid RISE FALL and ? XXX 
         self.write(f'TRIGger:A:EDGE:SLOpe {value}')
+
+    # Trigger settings
+    def set_edge_trigger(self, 
+                         trigger_source: str = 'CH1',
+                         trigger_level: float = '1e-2', 
+                         trigger_slope: str = 'RISE'):
+        """Set the trigger to edge in mode Normal
+
+        trigger_source: str
+            The trigger source CH<X> or EXT for external
+        trigger_level: float
+            The trigger level
+        trigger_slope: str
+            Either RISE, FALL or EITHER
+        """
+        self.write("TRIGger:A:MODE NORMAL")
+        # USe A: main trigger (B trigger is secondary optional, used in advanced modes)
+        self.trigger_edge_source = trigger_source
+        self.write("TRIGger:A:EDGE:COUPling DC")
+        if trigger_source  == "AUX":
+            # Trigger level to 1.4 TTL or -1.3 ECL, 
+            # modify to provide the proper string
+            trigger_level = "TTL" if trigger_level > 0 else "ECL"            
+        self.trigger_level = trigger_level
+
+        assert trigger_slope in [ "RISE", "FALL", "EITHER"], f"Wrong slope `{trigger_slope}`"
+        self.trigger_slope = trigger_slope
+
+        logger.info(f'Trigger edge configured. Source: {trigger_source}, slope: {trigger_slope}, level={self.trigger_level}')
     
     # VErtical and horizontal 
     @property
@@ -184,12 +231,16 @@ class MSOController:
         if not hasattr(self,'_total_horizontal_division'):
             self._total_horizontal_division = self.query('HORizontal:DIVisions?')
         return self._total_horizontal_division
-    
+
     def get_channel_scale(self, channel):
         return float(self.query(f'CH{channel}:SCALE?'))
     
     def set_channel_scale(self, channel, val):
         return self.write(f'CH{channel}:SCALE {val}')
+
+    # Some useful config for horizontal and vertical
+    # def set_horizontal_config(self)
+    # def set_vertical_config(self)
 
     # Max-available frames
     @property
@@ -204,7 +255,7 @@ class MSOController:
             A value between [1 - 0( to be safe 
         """
         TOTAL_PTS = 62500000
-        activated_channels = sum(map(lambda x: int(x), s.query('SELECT?').split(';')[4:]))
+        activated_channels = sum(map(lambda x: int(x), self.query('SELECT?').split(';')[4:]))
         if activated_channels < 1:
             logger.warning('No active channels. Ignore request')
             return 0
@@ -243,7 +294,7 @@ class MSOController:
         """
         return self.dev.query(q)
 
-    def query_binary(self, q: str) -> bytes:
+    def query_binary(self, q: str):
         """Send a  returning binary block from CURVE?. 
 
         Parameter
@@ -253,13 +304,41 @@ class MSOController:
 
         Return
         ------
-        Bytes
+        -- whatever you ask for
         """
         pre = self.wf_preamble
         bytes_per_point = int(pre.get("BYT_NR",1))
-        datatype = 'H' if bytes_per_point == 2 else 'B'
+        big_endian = (pre.get("BYT_OR") == "MSB")
+        datatype = 'h' if bytes_per_point == 2 else 'b'
 
-        return self.dev.query_binary_values(q, datatype=datatype, container=bytes, header_fmt='empty')
+        # XXX -- CLEAN DATA AFTERREADER?
+
+        return self.dev.query_binary_values(q, datatype=datatype, is_big_endian=big_endian)
+
+    def read_raw(self):
+        """
+        """
+        # 
+        self.write('CURVE?')
+        
+        # Number of digits
+        nd = int( --- >> ??
+        #raw = self.dev.read_raw()
+        ## b'X<N><len><payload>\n
+
+        ## Parsing
+        #if raw[:1] != b'#':
+        #    logger.error('No header `#` present.')
+        #    # XXX ? raise?
+        ## In fast frame mode we need to extract all frames
+
+        #nd = int(raw[1:2])
+        #n = int(raw[2:2+nd])
+        #payload = raw[2+nd:2+nd+n]
+
+        return payload
+
+
 
     # -------------------
     # AFG Functions
@@ -275,29 +354,29 @@ class MSOController:
     # -------------------
     # Sincronization 
     # -------------------
-    def op_complete(self):
-        """Generates *OPC and waits for the last command completion (acquisition usually)."""
-        self.write("*OPC")
-
     def read_esr(self):
         """The *ESR? (Standard Event Status Register)"""
         return self.query("*ESR?")
 
-    # ------------------
+    # ------------------------
     # Pre-configuration activa
-    # -----------------
+    # ------------------------
     def preconfig(self, 
                   active_channels = [ 1,2,3,4],
                   scale = [ 100e-3, 100e-3, 100e-3, 100e-3 ], 
                   t_div = 10e-9,
                   t_delay = 20,
                   trigger_source = "CH1",
-                  trigger_level  = 100e-3
+                  trigger_level  = 100e-3,
+                  record_length: int =2500, 
+                  bpp: int = 2, 
                   ):
         """
         """
         # Cross-checks
         assert len(active_channels) == len(scale), "Scale numberss must be equal to channels"
+        logger.info(f"Configure: Active channels={active_channels}, Vertical scale={scale} V, Time division={t_div} s")
+        logger.info(f"Configure: Record Length={record_length}, bytes_per_point={bpp}")
         # Enable the channels for DATA subsystem and other configuration
         for i,ch in enumerate(active_channels):
             self.write(f'SELect:CH{ch} ON')
@@ -306,22 +385,32 @@ class MSOController:
             self.write(f'CH{ch}:POSition 0')
             self.write(f'CH{ch}:COUPling DC')
             self.write(f'CH{ch}:BANdwidth FULL')
-        
+
         # Select the horizontal time base (time per division),
         # Remember the scope has 10 divisions: total scale: 10 x t_div
         self.write(f'HORizontal:SCAle {t_div}')
         # The trigger delay
         self.write(f'HORizontal:POSition {t_delay}')
 
-        # Trigger group configuration
-        self.write("TRIGger:A:MODE NORMAL")
-        # USe A: main trigger (B trigger is secondary optional, used in advanced modes)
-        self.write(f"TRIGger:A:EDGE:SOUrce {trigger_source}")
-        # Not sure what slope we should be using from the TLU?
-        self.write("TRIGger:A:EDGE:COUPling DC")
-        self.trigger_level = trigger_level
-        self.trigger_slope = "RISE"
-        logger.info(f'Pre-configuration with [TB FILLED]')
+        self.write("ACQuire:STATE OFF")
+        self.write("ACQuire:MODE SAMPLE")
+        # Number of points
+        self.record_length = int(record_length)
+        self.write(f"HORizontal:MODE:RECOrdlength {self.record_length}")
+
+        # Data -related
+        # The right-hand, signed binary (2 bytes MSB
+        self.write("DATa:ENCdg RIBinary")
+        # The number of bytes per point
+        self.write(f"WFMOutpre:BYT_Nr {bpp}")
+
+        # disabling fast frame and FastAcq (just in case)
+        self.write("HORizontal:FASTframe:STATE OFF")
+        self.write("ACQuire:FASTAcq:STATE OFF")
+        # Captures exactly 1 shot? defined with countp?
+        self.set_acquisition_sequence()
+        # The trigger configuration 
+        self.set_edge_trigger(trigger_source=trigger_source, trigger_level=trigger_level, trigger_slope="RISE")
 
     # ------------------------
     # Configuration FastFrame
@@ -364,92 +453,33 @@ class MSOController:
         self.write(f"WFMOutpre:BYT_Nr {bpp}")
         # The oscilloscope will start to acquire as soon as possible 
         # (for instance, after a CURVE?, just when finish) --> BUT
-        #self.write("ACQuire:STOPAfter RUNSTOP")
-        self.write("ACQuire:STOPAfter SEQUENCE")
+        #self.set_acquisition_continous()
+        self.set_acquisition_sequence()
         # display streaming off to increase speed
         self.write("DISPLAY:WAVEFORM OFF")
         # The trigger configuration  (wait for a regular trigger event)
-        self.dev.write("TRIGger:A:MODE NORMAL")
-        # The trigger source (just Channel or eexternal)
-        # USe A: main trigger (B trigger is secondary optional, used in advanced modes)
-        self.dev.write(f"TRIGger:A:EDGE:SOUrce {trigger_source}")
-        # Not sure what slope we should be using from the TLU?
-        self.dev.write("TRIGger:A:EDGE:SLOpe RISE")
-        self.dev.write("TRIGger:A:EDGE:COUPling DC")
-        # The level: ECL --> -1.3 Volts, TTL --> 1.4 Volt ,or a  number 
-        self._trigger_aux_level = "TTL"
-        self.dev.write(f"TRIGger:AUXLevel {self._trigger_aux_level}")
+        # Note per default trigger_level= 1e-2 (TTL if AUX source) and slope=RISE
+        self.set_edge_trigger(trigger_source=trigger_source)
         # The DATA to be sent??  XXX
         # self.dev.write(f"DATa:START {int(record_start)}")
         # self.dev.write(f"DATa:STOP {int(record_stop)}")
         logger.debug("FastFrame configuration sent and ready...")
 
-    def simple_conf(self,
-                    record_length: int =2500, 
-                    bpp: int = 2, 
-                    trigger_source: str = "EXT",
-                    trigger_mode: str = "NORMAL"):
-        """Configure the oscilloscope to perform a single acquisition in SAMPLE mode
-        using as trigger `source`. 
-
-        Parameters
-        ----------
-        record_lenght: int
-            The number of points of the waveforms
-        bpp: int
-            Bytes per points 
-        trigger_source: str
-            The trigger source [CHannel or EXT]
-        trigger_source: str
-            The trigger mode NORMAL (wait for a valid trigger event), AUTO (generates a trigger after a while)
+    # --------------------
+    # Acquisition related
+    # --------------------
+    def set_acquisition_sequence(self):
+        """After take the number of Counted waveform stop acquisition
+        (single sequence adquisition)
         """
-        logger.info(f"Configure: RL={record_length}, bytes_per_point={bpp}, Trigger mode: {trigger_mode}, Trigger source: {trigger_source}")
-        self.write("ACQuire:STATE OFF")
-        self.write("ACQuire:MODE SAMPLE")
-        # Number of points
-        self.record_length = int(record_length)
-        self.write(f"HORizontal:MODE:RECOrdlength {self.record_length}")
-        # The right-hand, signed binary (2 bytes MSB
-        self.write("DATa:ENCdg RIBinary")
-        # disabling fast frame and FastAcq (just in case)
-        self.write("HORizontal:FASTframe:STATE OFF")
-        self.write("ACQuire:FASTAcq:STATE OFF")
-        # The number of bytes per point
-        self.write(f"WFMOutpre:BYT_Nr {bpp}")
-        # Captures exactly 1 shot? defined with countp
         self.write("ACQuire:STOPAfter SEQUENCE")
-        # The trigger configuration 
-        # The trigger source (just Channel or eexternal)
-        # USe A: main trigger (B trigger is secondary optional, used in advanced modes)
-        self.dev.write(f"TRIGger:A:MODE {trigger_mode}")
-        self.dev.write(f"TRIGger:A:EDGE:SOUrce {trigger_source}")
-        # If not aux --> 
-        #self.dev.write(f"TRIGger:A:LEVel:CH{trigger_source} ")
-        # ---> 
-        # Not sure what slope we should be using from the TLU?
-        self.dev.write("TRIGger:A:EDGE:SLOpe RISE")
-        self.dev.write("TRIGger:A:EDGE:COUPling DC")
-        logger.debug("FastFrame configuration sent and ready...")
+
+    def set_acquisition_continous(self):
+        """The data is continously taken
+        """
+        self.write("ACQuire:STOPAfter RUNSTop")
+
     
-    # XXX FIXME
-    #def configure_stream_acq(self, record_length: int=10000):
-    #    """Configure the oscilloscope to acquire in continous stream,
-    #    sending data as soons as arrive
-    #    """
-    #    self.write("ACQUIRE:STATE OFF")
-    #    self.write("DATa:SOUrce CH1")
-    #    self.write("DATa:ENCdg RIBinary")
-    #    self.write("CURVESTREAM:STATE " --> NO!!
-    #    self.write(f"HORIZONTAL:RECORDLENGTH {int(record_length)}")
-    #    # Number of frames to be acquired
-    #    self.write(f"HORizontal:FASTframe:COUNt {n_frames}")
-    #    XXX WIP
-
-    #    self.write(f"ACQUIRE:MODE {sample_mode}")
-    #    self.write("ACQUIRE:STOPAFTER SEQUENCE")
-    #    # display streaming off to increase speed
-    #    self.write("DISPLAY:WAVEFORM OFF")
-
     def arm_acquisition(self):
         """Start acquisition
         """
@@ -467,39 +497,34 @@ class MSOController:
         #self.dev.write("*OPC;TRIGger:AUXLevel 5.0")
         _ = self.query('*OPC?')
         self.send_busy()
-        # Revert back the trigger
-        #self.dev.write(f"TRIGger:AUXLevel {self._trigger_aux_level}")
+        # Revert back the trigger?
     
     # -------------------
     # Waveform fetch
     # -------------------
-    def read_frame_channel(
+    def read_channel(
             self,
             channel: int,
-            frame: int
             ) -> bytes:
         """
-        Read one FastFrame segment for one channel and returns the bytes
+        Read all one channel and returns the bytes
         without any processing
 
         Parameters
         ----------
         channel : int
             Channel number (1-based).
-        frame: int
-            The frame to extract
 
         Return
         ------
         bytes: The waveform
         """
-        self.dev.write(f"DATa:SOUrce CH{int(channel)}")
-        self.ctrl.write(f"DATa:START 1")
-        self.ctrl.write(f"DATa:STOP {self.record_length}")
-        self.ctrl.write(f"DATa:FRAMESTART {1}")
-        self.ctrl.write(f"DATa:FRAMESTOP {self.n_frames}")
-
-        return self.dev.query_binary("CURVe?")
+        self.write(f"DATa:SOUrce CH{int(channel)}")
+        self.write(f"DATa:START 1")
+        self.write(f"DATa:STOP {self.record_length}")
+        
+        # FIXME -- query_binary o query solo
+        return self.read_raw()
 
     def read_all_frame_channel(
             self,
@@ -522,49 +547,12 @@ class MSOController:
         self.write(f"DATa:START 1")
         self.write(f"DATa:STOP {self.record_length}")
         self.write(f"DATa:FRAMESTART 1")
-        self.write(f"DATa:FRAMESTOP {self.n_frame}")
+        self.write(f"DATa:FRAMESTOP {self.n_frames}")
         
         # FIXME -- query_binary o query solo
-        return self.query_binary("CURVe?")
+        return self.read_raw()
+        #return self.query_binary("CURVe?")
 
-    def read_frame_channel_numpy(
-            self,
-            channel: int,
-            frame: int,
-            ) -> np.ndarray:
-        """
-        Read one FastFrame segment for one channel.
-
-        Returns the raw integer samples (int8 or int16).
-
-        Parameters
-        ----------
-        channel : int
-            Channel number (1-based).
-
-        Return
-        ------
-        np.narray: The waveform
-        """
-        self.write(f"DATa:SOUrce CH{int(channel)}")
-        self.write(f"DATa:START 1")
-        self.write(f"DATa:STOP {self.record_length}")
-        self.write(f"DATa:FRAMESTART {frame}")
-        self.write(f"DATa:FRAMESTOP {frame}")
-        
-        pre = self.wf_preamble
-        bytes_per_point = int(pre.get("BYT_NR",1))
-        # Choose data type for query_binary_values (singedness depends on BN_FMT)
-        # bpp = 1 --> signed 8-bit (B) then np.int8, bpp = 2 --> signed 16-bit (H), np.int16
-        datatype = 'H' if bytes_per_point == 2 else 'B'
-        dtype = np.int16 if bytes_per_point == 2 else np.int8
-        try:
-            # XXX--- is_bin_endian depening BYT_OR and BN_FMT
-            data = self.dev.query_binary_values("CURVe?", datatype=datatype, container=list, header_fmt='ieee')
-            return np.asarray(data, dtype=dtype)
-        except Exception as e:
-            logger.error("Error reading frame %d ch %d: %s", frame_index, channel, e)
-            return np.zeros(0, dtype=dtype)
 
     def read_frame_channel(
             self,
@@ -592,54 +580,66 @@ class MSOController:
         self.write(f"DATa:FRAMESTART {frame}")
         self.write(f"DATa:FRAMESTOP {frame}")
         
-        # FIXME -- query_binary o query solo
-        return self.query_binary("CURVe?")
+        return self.read_raw()
 
-    def read_frame_channel_numpy(
-            self,
-            channel: int,
-            frame: int,
-            ) -> np.ndarray:
-        """
-        Read one FastFrame segment for one channel.
+    #def read_frame_channel_numpy(
+    #        self,
+    #        channel: int,
+    #        frame: int,
+    #        ) -> np.ndarray:
+    #    """
+    #    Read one FastFrame segment for one channel.
 
-        Returns the raw integer samples (int8 or int16).
+    #    Returns the raw integer samples (int8 or int16).
 
-        Parameters
-        ----------
-        channel : int
-            Channel number (1-based).
+    #    Parameters
+    #    ----------
+    #    channel : int
+    #        Channel number (1-based).
 
-        Return
-        ------
-        np.narray: The waveform
-        """
-        self.write(f"DATa:SOUrce CH{int(channel)}")
-        self.write(f"DATa:START 1")
-        self.write(f"DATa:STOP {self.record_length}")
-        self.write(f"DATa:FRAMESTART {frame}")
-        self.write(f"DATa:FRAMESTOP {frame}")
-        
-        pre = self.wf_preamble
-        bytes_per_point = int(pre.get("BYT_NR",1))
-        # Choose data type for query_binary_values (singedness depends on BN_FMT)
-        # bpp = 1 --> signed 8-bit (B) then np.int8, bpp = 2 --> signed 16-bit (H), np.int16
-        datatype = 'H' if bytes_per_point == 2 else 'B'
-        dtype = np.int16 if bytes_per_point == 2 else np.int8
-        try:
-            # XXX--- is_bin_endian depening BYT_OR and BN_FMT
-            data = self.dev.query_binary_values("CURVe?", datatype=datatype, container=list, header_fmt='ieee')
-            return np.asarray(data, dtype=dtype)
-        except Exception as e:
-            logger.error("Error reading frame %d ch %d: %s", frame_index, channel, e)
-            return np.zeros(0, dtype=dtype)
+    #    Return
+    #    ------
+    #    np.narray: The waveform
+    #    """
+    #    self.write(f"DATa:SOUrce CH{int(channel)}")
+    #    self.write(f"DATa:START 1")
+    #    self.write(f"DATa:STOP {self.record_length}")
+    #    self.write(f"DATa:FRAMESTART {frame}")
+    #    self.write(f"DATa:FRAMESTOP {frame}")
+    #    
+    #    # XXX -- Nota que directamente es posbile obtener numpySS s
+    #    # https://pyvisa.readthedocs.io/en/1.8/rvalues.html
+    #    pre = self.wf_preamble
+    #    bytes_per_point = int(pre.get("BYT_NR",1))
+    #    # Choose data type for query_binary_values (singedness depends on BN_FMT)
+    #    # bpp = 1 --> signed 8-bit (B) then np.int8, bpp = 2 --> signed 16-bit (H), np.int16
+    #    datatype = 'H' if bytes_per_point == 2 else 'B'
+    #    dtype = np.int16 if bytes_per_point == 2 else np.int8
+    #    try:
+    #        # XXX--- is_bin_endian depening BYT_OR and BN_FMT
+    #        data = self.dev.query_binary_values("CURVe?", datatype=datatype, container=list, header_fmt='ieee')
+    #        return np.asarray(data, dtype=dtype)
+    #    except Exception as e:
+    #        logger.error(f"Error reading frame {frame} ch {channel}: {e}")
+    #        return np.zeros(0, dtype=dtype)
 
     @property
     def wf_preamble(self) -> Dict[str, str]:
         """Read and parse WFMOutpre? into a dictionary.
         """
+        if not hasattr(self,'_wf_preamble'):
+            self._wf_preamble = {}
         txt = self.dev.query("WFMOutpre?").split(';')
-        self._wf_preamble = dict(zip(PREAMBLE_ORDERED_LIST,txt))        
+        for i,key in enumerate(PREAMBLE_ORDERED_LIST):
+            # special key on 6, if exist XXX -- FIX ME existance
+            if key == "WFID":
+                wfid_dict = {}
+                for k, key_wfid in enumerate(WFID_FIELDS):
+                    wfid_dict[key_wfid] = txt[i].split(',')[k]
+                value = wfid_dict
+            else:
+                value = txt[i]
+            self._wf_preamble[key] = value
         return self._wf_preamble
 
     # -------------------
