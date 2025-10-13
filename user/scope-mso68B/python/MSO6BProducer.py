@@ -300,6 +300,13 @@ class EudaqEventSender(threading.Thread):
             ev.SetTag('producer_name', str(self.producer._name))
             ch_str = ','.join( [str(ch) for ch in self.producer.channel] )
             ev.SetTag('channels', ch_str)
+            # XXX
+            # FIXME -- Very similar to the CAEN digi dut_names dict 
+            # XXX
+            # --> ev.SetTag('dut_names', )
+            # XXX
+            # FIXME -- Very similar to the CAEN digi dut_names dict 
+            # XXX
             ev.SetTag('dt', str(self.producer.wf_preamble[1]["XINCR"]))
             ev.SetTag('t0', str(self.producer.wf_preamble[1]["XZERO"]))
             ev.SetTag('sampled_points', str(self.producer.record_length))
