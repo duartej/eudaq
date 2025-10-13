@@ -138,7 +138,7 @@ class FrameReader(threading.Thread):
     When done, puts a sentinel None into the queue to indicate end-of-burst.
     """
 
-    def __init__(self, producer: pyeudaq.Producer , controller: MSOController, 
+    def __init__(self, producer: pyeudaq.Producer ,
                  ctrl_lock: threading.Lock,
                  data_queue: queue.Queue, 
                  n_frames: int, channels: 
@@ -148,7 +148,7 @@ class FrameReader(threading.Thread):
         # Initialize 
         super().__init__(daemon=True)
         self.producer = producer
-        self.ctrl = controller
+        self.ctrl = self.producer.ctrl
         self.ctrl_lock = ctrl_lock
         self.queue = data_queue
         self.n_frames = int(n_frames)
@@ -181,6 +181,7 @@ class FrameReader(threading.Thread):
                     # FIXME -- Check the record lenght?
                     # put into queue (block if full
                     # XXX ?? self.queue.put((0, ch, raw_data.tobytes()))
+                    # Send the whole channel data (all n-frames)
                     self.queue.put((0, ch, raw_data), block=True)
             self.queue.put(None)
             logger.info("FrameReader finished and placed sentinel in queue.")
@@ -253,13 +254,15 @@ class EudaqEventSender(threading.Thread):
                 logger.info("EudaqEventSender got sentinel; finishing.")
                 self._flush_remaining()
                 break
-            frame_idx, ch, raw_data_list = item
+            frame_idx, ch, raw_data_blob = item
+            # Convert into frame payloads
+            raw_data_list = self.producer.ctrl.split_raw_data(raw_data_blob)
             # Check the expected number of n-frames
             if len(raw_data_list) != self.n_frames:
                 logger.warning(f"Expected {self.producer.n_frames} bytes, got {len(raw_data_list)}")
 
             # Let's build all the data from frame idx. Need to obtain all channels
-            for i in range(n_frames):
+            for i in range(self.producer.n_frames):
                 frame_idx = i + 1
                 if (frame_idx) not in self.framebuf:
                     self.framebuf[frame_idx] = {}
@@ -297,10 +300,10 @@ class EudaqEventSender(threading.Thread):
             ev.SetTag('producer_name', str(self.producer._name))
             ch_str = ','.join( [str(ch) for ch in self.producer.channel] )
             ev.SetTag('channels', ch_str)
-            ev.SetTag('dt', str(self.producer.wf_preamble[0]["XINCR"]))
-            ev.SetTag('t0', str(self.producer.wf_preamble[0]["XZERO"]))
+            ev.SetTag('dt', str(self.producer.wf_preamble[1]["XINCR"]))
+            ev.SetTag('t0', str(self.producer.wf_preamble[1]["XZERO"]))
             ev.SetTag('sampled_points', str(self.producer.record_length))
-            for ch in self.producer.channel:
+            for ch in self.producer.channels:
                 ev.SetTag(f'channel{ch}_dv', str(self.producer.wf_preamble[ch]["YMULT"]))
                 ev.SetTag(f'channel{ch}_v0', str(self.producer.wf_preamble[ch]["YZERO"]))
                 ev.SetTag(f'channel{ch}_voffset', str(self.producer.wf_preamble[ch]["YOFF"]))
@@ -438,7 +441,7 @@ class MSO6BProducer(pyeudaq.Producer):
 
         # Then acquisition of the frames 
         # create and start reader (producer) thread
-        self.reader = FrameReader(producer =self, controller=self.ctrl,
+        self.reader = FrameReader(producer =self,
                                   ctrl_lock=self.ctrl_lock,
                                   data_queue=self.data_q,
                                   n_frames=self.n_frames,
