@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Controller for Tektronix 4/56/ Series MSO via SCPI (VISA)
 
@@ -5,9 +7,10 @@ Requirements:
     pip install pyvisa pyvisa-py
 
 Programmer Manual references:
- - BUSY? / *OPC / *WAI: (sync).
- - WFMOutpre? + CURVe? (transfer waveform).
- - Event queue / SESR / *ESR? (event handling).
+https://www.tek.com/en/sitewide-content/manuals/4/5/6/4-5-6-series-mso-programmer-manual
+
+2025-10-04, Jordi Duarte-Campderros (IFCA) 
+duarte@ifca.unican.es
 """
 
 import logging
@@ -78,13 +81,20 @@ def _header_list_to_dict(result_str):
 
 class MSOController:
     def __init__(self, resource_string, timeout_ms=10000, afg_resource=None):
-        """
+        """Class to remotely control a Tektronix Serie 4/5/6 MSO, and 
+        a simple Function generator (AFG) to act as busy signal when
+        the scope is reading out.
+
         Parameters
         ----------
-        resource_string: example "USB0::0x0699::0x0522::123456::INSTR"
+        resource_string: str
+            The VISA string for the scope.
+            Example "USB0::0x0699::0x0522::123456::INSTR"
                          o "TCPIP::192.168.5.12::INSTR"
         timeout_ms: int 
             Read timeout in ms (adjust depending on record length)
+        afg_resource: str
+            The VISA string for the AFG
         """
         self.rm = pyvisa.ResourceManager()
         self.dev = self.rm.open_resource(resource_string)
@@ -146,7 +156,6 @@ class MSOController:
         Note to re-enable channels (self.write('SELECT:CH<X>' or call preconfig)
         """
         self.write('*RST')
-        self.write('*CLS;CLEAR')
         # Wait to finish the reset
         _ = self.query('*OPC?')
         # Set a pre-defined configuration
@@ -295,7 +304,7 @@ class MSOController:
         return self.dev.query(q)
 
     def query_binary(self, q: str):
-        """Send a  returning binary block from CURVE?. 
+        """Send the converted values (int, uint,..) from CURVE?. 
 
         Parameter
         ---------
@@ -312,33 +321,57 @@ class MSOController:
         datatype = 'h' if bytes_per_point == 2 else 'b'
 
         # XXX -- CLEAN DATA AFTERREADER?
-
         return self.dev.query_binary_values(q, datatype=datatype, is_big_endian=big_endian)
 
-    def read_raw(self):
+    def split_raw_data(self, blob: bytes): 
+        """Split a IEEE-488.2 block (#<nd><len><payload>\n) from raw
+        data of teh oscilloscope and parses them to return only the payload in bytes.
+
+        Parameters
+        ----------
+        blob: bytes
+            The raw blocks 
+
+        Return
+        ------
+        list(bytes): list of payloads 
         """
-        """
-        # 
-        self.write('CURVE?')
-        
-        # Number of digits
-        nd = int( --- >> ??
-        #raw = self.dev.read_raw()
-        ## b'X<N><len><payload>\n
+        payloads = []
+        i = 0
+        L = len(blob)
 
-        ## Parsing
-        #if raw[:1] != b'#':
-        #    logger.error('No header `#` present.')
-        #    # XXX ? raise?
-        ## In fast frame mode we need to extract all frames
+        while i < L:
+            if blob[i:i+1] != b'#':
+                print(blob[i:i+10])
+                raise ValueError(f'No header `#` in offset {i}')
+            i += 1
 
-        #nd = int(raw[1:2])
-        #n = int(raw[2:2+nd])
-        #payload = raw[2+nd:2+nd+n]
+            # Parse the header
+            nd = int(blob[i:i+1].decode('ascii'))
+            i += 1
+            n = int(blob[i:i+nd].decode('ascii'))
+            i += nd
 
-        return payload
+            # Ready to get the payload
+            payload = blob[i:i+n]
+            payloads.append( payload )
+            i += n
 
+            # Consume terminator
+            if i < L and blob[i:i+1] == b'\r':
+                i += 1
+            if i < L and blob[i:i+1] == b'\n':
+                i += 1
+            if i < L and blob[i:i+1] == b';':
+                i += 1
 
+        return payloads
+
+    def recover_io(self):
+        from pyvisa import constants as vc
+        self.dev.clear()
+        self.write('*CLS')
+        _ = self.query('*ESR?')
 
     # -------------------
     # AFG Functions
@@ -523,8 +556,8 @@ class MSOController:
         self.write(f"DATa:START 1")
         self.write(f"DATa:STOP {self.record_length}")
         
-        # FIXME -- query_binary o query solo
-        return self.read_raw()
+        self.write('CURVE?')
+        return self.dev.read_raw()
 
     def read_all_frame_channel(
             self,
@@ -549,9 +582,8 @@ class MSOController:
         self.write(f"DATa:FRAMESTART 1")
         self.write(f"DATa:FRAMESTOP {self.n_frames}")
         
-        # FIXME -- query_binary o query solo
-        return self.read_raw()
-        #return self.query_binary("CURVe?")
+        self.write('CURVE?')
+        return self.dev.read_raw()
 
 
     def read_frame_channel(
@@ -580,7 +612,8 @@ class MSOController:
         self.write(f"DATa:FRAMESTART {frame}")
         self.write(f"DATa:FRAMESTOP {frame}")
         
-        return self.read_raw()
+        self.write('CURVE?')
+        return self.dev.read_raw()
 
     #def read_frame_channel_numpy(
     #        self,
