@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Controller for Tektronix 4/56/ Series MSO via SCPI (VISA)
 
@@ -118,15 +116,22 @@ class MSOController:
             # Force explicitly the record length and sample rate:
             # t_frame = Record_length/sample_rate
             self.write('HORizontal:MODE MANUAL')
-            # Fix maximum sample rate
-            self.write('HORizontal:MAIN:SAMPLERate 25e9')
+            # Fix maximum sample rate --> Automatic ???
+            # --> Looks like this is not workingself.write('HORizontal:MAIN:SAMPLERate 50e9')
             # Any other? XXX
 
         if afg_resource is not None:
             # Use the afg to generate a busy signal while reading
             # and processing data
             self.afg = self.rm.open_resource(afg_resource)
+            self.afg.read_termination = '\r\n'
+            self.afg.write_termination = '\n'
             self.afg._idn = self.afg.query("*IDN?")
+            # Setup the AFG to send a DC of 1.1 Vpp for CH1
+            self.afg.write('CHN1')
+            self.afg.write('ARBDCOFFS 1.1')
+            self.afg.write('ARBLOAD DC')
+            self.afg.write('OUTPUT OFF')
             # All related functions properly identified
             self.send_busy = self._send_busy
             self.clear_busy= self._clear_busy
@@ -163,6 +168,11 @@ class MSOController:
         #self.write(f':SELECT:CH1 ON;:SELECT:CH2 ON;:SELECT:CH3 ON;:SELECT:CH4 ON')
     
     # Some useful accessors 
+
+    @property
+    def sampling_rate(self):
+        return float(self.query('HORizontal:SAMPLERate?'))
+    
     # TRIGGER group
     @property
     def trigger_edge_source(self):
@@ -397,14 +407,25 @@ class MSOController:
     def preconfig(self, 
                   active_channels = [ 1,2,3,4],
                   scale = [ 100e-3, 100e-3, 100e-3, 100e-3 ], 
+                  target_window = 200e-9, 
                   t_div = 10e-9,
                   t_delay = 20,
                   trigger_source = "CH1",
                   trigger_level  = 100e-3,
-                  record_length: int =2500, 
                   bpp: int = 2, 
                   ):
         """
+        Parameters
+        ----------
+        active_channels: list(int)
+        scale: list(float)
+        target_window: float
+            The horizontal window we want to record [s]
+        # Not important in fact... this is just for the display
+        t_div: float
+            The time per division
+        t_delay: int
+            The percentage where the
         """
         # Cross-checks
         assert len(active_channels) == len(scale), "Scale numberss must be equal to channels"
@@ -417,8 +438,15 @@ class MSOController:
             self.write(f'CH{ch}:SCAle {scale[i]}')
             self.write(f'CH{ch}:POSition 0')
             self.write(f'CH{ch}:COUPling DC')
+            self.write(f'CH{ch}:TERMINATION 50')
             self.write(f'CH{ch}:BANdwidth FULL')
+        
+        # Define the acquisition window (assuming trigger=t0?)
+        # The window is defined by (number of points)/sampling_Frequency
+        self.record_length = int(target_window/self.sampling_rate)
+        self.write(f"HORizontal:MODE:RECOrdlength {self.record_length}")
 
+        # FOR THE DISPLAY 
         # Select the horizontal time base (time per division),
         # Remember the scope has 10 divisions: total scale: 10 x t_div
         self.write(f'HORizontal:SCAle {t_div}')
@@ -427,9 +455,6 @@ class MSOController:
 
         self.write("ACQuire:STATE OFF")
         self.write("ACQuire:MODE SAMPLE")
-        # Number of points
-        self.record_length = int(record_length)
-        self.write(f"HORizontal:MODE:RECOrdlength {self.record_length}")
 
         # Data -related
         # The right-hand, signed binary (2 bytes MSB
