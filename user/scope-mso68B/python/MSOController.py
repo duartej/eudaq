@@ -1,10 +1,6 @@
 """
 Controller for Tektronix 4/56/ Series MSO via SCPI (VISA)
 
-Requirements:
-    pip install pyvisa pyvisa-py
-
-Programmer Manual references:
 https://www.tek.com/en/sitewide-content/manuals/4/5/6/4-5-6-series-mso-programmer-manual
 
 2025-10-04, Jordi Duarte-Campderros (IFCA) 
@@ -79,16 +75,15 @@ def _header_list_to_dict(result_str):
 
 class MSOController:
     def __init__(self, resource_string, timeout_ms=10000, afg_resource=None):
-        """Class to remotely control a Tektronix Serie 4/5/6 MSO, and 
+        """Class to remotely control a Tektronix Serie 4/5/6 MSO, and
         a simple Function generator (AFG) to act as busy signal when
         the scope is reading out.
 
         Parameters
         ----------
         resource_string: str
-            The VISA string for the scope.
-            Example "USB0::0x0699::0x0522::123456::INSTR"
-                         o "TCPIP::192.168.5.12::INSTR"
+            The VISA string for the scope. Example "USB0::0x0699::0x0522::123456::INSTR"
+            or "TCPIP::192.168.5.12::INSTR"
         timeout_ms: int 
             Read timeout in ms (adjust depending on record length)
         afg_resource: str
