@@ -114,6 +114,8 @@ class MSOController:
             # Fix maximum sample rate --> Automatic ???
             # --> Looks like this is not workingself.write('HORizontal:MAIN:SAMPLERate 50e9')
             # Any other? XXX
+            # The time window per default: 20 ns (2 ns/div)
+            self.target_window = 20e-9
 
         if afg_resource is not None:
             # Use the afg to generate a busy signal while reading
@@ -167,6 +169,24 @@ class MSOController:
     @property
     def sampling_rate(self):
         return float(self.query('HORizontal:SAMPLERate?'))
+    
+    @property
+    def target_window(self):
+        """The time window acquired
+        """
+        return self._target_window
+
+    @target_window.setter
+    def target_window(self, target_window):
+        """It is linked with the record_length)
+        """
+        self._target_window = target_window
+    
+    @property
+    def record_length(self):
+        return int(self._target_window * self.sampling_rate)
+    
+    
     
     # TRIGGER group
     @property
@@ -402,9 +422,7 @@ class MSOController:
     def preconfig(self, 
                   active_channels = [ 1,2,3,4],
                   scale = [ 100e-3, 100e-3, 100e-3, 100e-3 ], 
-                  target_window = 200e-9, 
-                  t_div = 10e-9,
-                  t_delay = 20,
+                  target_window = None, 
                   trigger_source = "CH1",
                   trigger_level  = 100e-3,
                   bpp: int = 2, 
@@ -422,10 +440,12 @@ class MSOController:
         t_delay: int
             The percentage where the
         """
+        # Update target window, if None use current value
+        if target_window is not None:
+            self.target_window = target_window
+
         # Cross-checks
         assert len(active_channels) == len(scale), "Scale numberss must be equal to channels"
-        logger.info(f"Configure: Active channels={active_channels}, Vertical scale={scale} V, Time division={t_div} s")
-        logger.info(f"Configure: Record Length={record_length}, bytes_per_point={bpp}")
         # Enable the channels for DATA subsystem and other configuration
         for i,ch in enumerate(active_channels):
             self.write(f'SELect:CH{ch} ON')
@@ -438,15 +458,18 @@ class MSOController:
         
         # Define the acquisition window (assuming trigger=t0?)
         # The window is defined by (number of points)/sampling_Frequency
-        self.record_length = int(target_window/self.sampling_rate)
+        # -->  Note, once defined target_window and sampling rate, record_length 
+        #      is linked
         self.write(f"HORizontal:MODE:RECOrdlength {self.record_length}")
 
-        # FOR THE DISPLAY 
+        # FOR THE DISPLAY  
         # Select the horizontal time base (time per division),
         # Remember the scope has 10 divisions: total scale: 10 x t_div
+        # USe the target_window: 
+        t_div = self.target_window/10
         self.write(f'HORizontal:SCAle {t_div}')
-        # The trigger delay
-        self.write(f'HORizontal:POSition {t_delay}')
+        # The trigger delay ?? 
+        # self.write(f'HORizontal:POSition {t_delay}')
 
         self.write("ACQuire:STATE OFF")
         self.write("ACQuire:MODE SAMPLE")
@@ -464,12 +487,15 @@ class MSOController:
         self.set_acquisition_sequence()
         # The trigger configuration 
         self.set_edge_trigger(trigger_source=trigger_source, trigger_level=trigger_level, trigger_slope="RISE")
+        
+        logger.info(f"Configure: Active channels={active_channels}, Vertical scale={scale} V, Time division={t_div} s")
+        logger.info(f"Configure: Acquire time window={self.target_window} [s], bytes_per_point={bpp}")
 
     # ------------------------
     # Configuration FastFrame
     # ------------------------
     def configure_fastframe_acq(self, 
-                                record_length: int =2500, 
+                                target_window: float = 200e-9, 
                                 bpp: int = 2, 
                                 n_frames: int = 1000, 
                                 trigger_source: str = "EXT"):
@@ -477,8 +503,8 @@ class MSOController:
 
         Parameters
         ----------
-        record_lenght: int
-            The number of points of the waveforms
+        target_window: float
+            The time window to acquire the points 
         bpp: int
             Bytes per points 
         n_frames: int
@@ -486,11 +512,12 @@ class MSOController:
         trigger_source: str
             The trigger source [CHannel or EXT]
         """
-        logger.info(f"Configure FastFrame: RL={record_length}, bytes_per_point={bpp}, Frames={n_frames}, Trigger source: {trigger_source}")
+        logger.info(f"Configure FastFrame: TimeWindow={target_window}, bytes_per_point={bpp}, Frames={n_frames}, Trigger source: {trigger_source}")
         self.write("ACQuire:STATE OFF")
         self.write("ACQuire:MODE SAMPLE")
         # Number of points
-        self.record_length = int(record_length)
+        self.target_window = target_window
+        # Defined target_window -> record_length
         self.write(f"HORizontal:MODE:RECOrdlength {self.record_length}")
         # Be sure the same data length is provided with curve?
         self.write(f"DATA:START 1")
