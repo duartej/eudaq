@@ -431,6 +431,7 @@ class MSOController:
     def preconfig(self, 
                   active_channels = [ 1,2,3,4],
                   scale = [ 100e-3, 100e-3, 100e-3, 100e-3 ], 
+                  offset = None, 
                   target_window = None, 
                   trigger_position = 30, 
                   bpp: int = 2, 
@@ -440,25 +441,29 @@ class MSOController:
         ----------
         active_channels: list(int)
         scale: list(float)
+        offset: list(float
         target_window: float
-            The horizontal window we want to record [s]
-        # Not important in fact... this is just for the display
-        t_div: float
-            The time per division
-        t_delay: int
+            The horizontal window we want to record [s]a
+        trigger_position: 
             The percentage where the
+        bpp:
         """
         # Update target window, if None use current value
         if target_window is not None:
             self.target_window = target_window
 
+        if offset is None:
+            offset = [ -_x*4 for _x in scale ]
+
         # Cross-checks
-        assert len(active_channels) == len(scale), "Scale numberss must be equal to channels"
+        assert len(active_channels) == len(scale), "Scale numbers must be equal to channels"
+        assert len(scale) == len(offset), "Scale and offset number of elements must be exactly the same"
         # Enable the channels for DATA subsystem and other configuration
         for i,ch in enumerate(active_channels):
             self.write(f'SELect:CH{ch} ON')
             # Position, scale and coupling
             self.write(f'CH{ch}:SCAle {scale[i]}')
+            self.write(f'CH{ch}:OFFSET {offset[i]}')
             self.write(f'CH{ch}:POSition 0')
             self.write(f'CH{ch}:COUPling DC')
             self.write(f'CH{ch}:TERMINATION 50')
