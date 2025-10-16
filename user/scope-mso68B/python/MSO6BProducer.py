@@ -186,8 +186,8 @@ class FrameReader(threading.Thread):
                     self.queue.put((0, ch, raw_data), block=True)
             self.queue.put(None)
             logger.info("FrameReader finished and placed sentinel in queue.")
-            # Activate again the triggers, note in RUNSTOP mode the acquistion will resume immediately
-            # XXX In SEQUENCE mode, you need the self.producer.arm_acquisition
+            # Arm again
+            self.producer.arm_acquisition()
             self.ctrl.clear_busy()
         logger.info("FrameReader run finished...")
 
@@ -248,7 +248,7 @@ class EudaqEventSender(threading.Thread):
     def run(self):
         """
         """
-        logger.info("EudaqEventSender started.")
+        logger.debug("EudaqEventSender started.")
         while self.producer._running:
             item = self.queue.get()
             if item is None:
@@ -261,7 +261,7 @@ class EudaqEventSender(threading.Thread):
             raw_data_list = self.producer.ctrl.split_raw_data(raw_data_blob)
             # Check the expected number of n-frames
             if len(raw_data_list) != self.producer.n_frames:
-                logger.warning(f"Expected {self.producer.n_frames} bytes, got {len(raw_data_list)}")
+                logger.warning(f"Expected {self.producer.n_frames} frames, got {len(raw_data_list)}")
 
             # Let's build all the data from frame idx. Need to obtain all channels
             for i in range(self.producer.n_frames):
@@ -284,7 +284,7 @@ class EudaqEventSender(threading.Thread):
                         logger.exception(f"Failed to send event for frame-{frame_idx}: {e}")
                     del self.framebuf[frame_idx]
                     self.queue.task_done()
-        logger.info("EudaqEventSender exiting.")
+        logger.debug("EudaqEventSender exiting.")
 
     def _send_frame_event(self, frame_data: Dict[int, bytes]):
         """Build and send one EUDAQ event corresponding to frame_idx.

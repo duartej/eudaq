@@ -495,7 +495,7 @@ class MSOController:
     # ------------------------
     # Configuration FastFrame
     # ------------------------
-    def configure_fastframe_acq(self, n_frames: int = 1000):
+    def configure_fastframe_acq(self, n_frames: int = 1000, continous_acq = False):
         """Configure the oscilloscope to acquire N-frames in fastFrame mode
 
         Parameters
@@ -513,8 +513,12 @@ class MSOController:
         self.write(f"HORizontal:FASTframe:COUNt {self.n_frames}")
         # The oscilloscope will start to acquire as soon as possible 
         # (for instance, after a CURVE?, just when finish) --> BUT
-        #self.set_acquisition_continous()
-        self.set_acquisition_sequence()
+        if continous_acq:
+            logger.info('Set acquisition continous (RUNSTOP)')
+            self.set_acquisition_continous()
+        else:
+            logger.info('Set acquisition SEQUENCE (RUNSTOP)')
+            self.set_acquisition_sequence()
         # display streaming off to increase speed ?
         #self.display_waveform(False)
         # The DATA to be sent??  XXX
