@@ -180,7 +180,10 @@ class MSOController:
     def target_window(self, target_window):
         """It is linked with the record_length)
         """
-        self._target_window = target_window
+        # Also place time division
+        self.write(f'HORizontal:SCAle {target_window/10}')
+        # Be sure it is possible (not all are available)
+        self._target_window = 10*float(self.query('HORizontal:SCAle?'))
     
     @property
     def record_length(self):
@@ -367,7 +370,6 @@ class MSOController:
 
         while i < L:
             if blob[i:i+1] != b'#':
-                print(blob[i:i+10])
                 raise ValueError(f'No header `#` in offset {i}')
             i += 1
 
@@ -423,6 +425,7 @@ class MSOController:
                   active_channels = [ 1,2,3,4],
                   scale = [ 100e-3, 100e-3, 100e-3, 100e-3 ], 
                   target_window = None, 
+                  trigger_position = 30, 
                   trigger_source = "CH1",
                   trigger_level  = 100e-3,
                   bpp: int = 2, 
@@ -461,13 +464,14 @@ class MSOController:
         # -->  Note, once defined target_window and sampling rate, record_length 
         #      is linked
         self.write(f"HORizontal:MODE:RECOrdlength {self.record_length}")
+        self.write(f"HORizontal:POSition {trigger_position}")
 
         # FOR THE DISPLAY  
         # Select the horizontal time base (time per division),
         # Remember the scope has 10 divisions: total scale: 10 x t_div
         # USe the target_window: 
-        t_div = self.target_window/10
-        self.write(f'HORizontal:SCAle {t_div}')
+        # t_div = self.target_window/10 --? Automaticall in target_window
+        # self.write(f'HORizontal:SCAle {t_div}')
         # The trigger delay ?? 
         # self.write(f'HORizontal:POSition {t_delay}')
 
@@ -488,7 +492,7 @@ class MSOController:
         # The trigger configuration 
         self.set_edge_trigger(trigger_source=trigger_source, trigger_level=trigger_level, trigger_slope="RISE")
         
-        logger.info(f"Configure: Active channels={active_channels}, Vertical scale={scale} V, Time division={t_div} s")
+        logger.info(f"Configure: Active channels={active_channels}, Vertical scale={scale} V, Time division={self.target_window/10} s")
         logger.info(f"Configure: Acquire time window={self.target_window} [s], bytes_per_point={bpp}")
 
     # ------------------------
@@ -536,7 +540,7 @@ class MSOController:
         #self.set_acquisition_continous()
         self.set_acquisition_sequence()
         # display streaming off to increase speed
-        self.write("DISPLAY:WAVEFORM OFF")
+        ### PROV-XXX self.write("DISPLAY:WAVEFORM OFF")
         # The trigger configuration  (wait for a regular trigger event)
         # Note per default trigger_level= 1e-2 (TTL if AUX source) and slope=RISE
         self.set_edge_trigger(trigger_source=trigger_source)
