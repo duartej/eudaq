@@ -13,6 +13,7 @@ import time
 import logging
 import sys
 from typing import List, Dict
+import click
 
 import numpy as np
 
@@ -177,7 +178,7 @@ class FrameReader(threading.Thread):
                     # no conversion, just binary , it returns a list (a raw binary data per frame)
                     raw_data = self.ctrl.read_all_frame_channel(ch)
                     if len(raw_data) == 0:
-                        logger.warning(f"Empty read for frame-%{frame} in CH-{ch}")
+                        logger.warning(f"Empty read for CH-{ch}")
                     # FIXME -- Check the record lenght?
                     # put into queue (block if full
                     # XXX ?? self.queue.put((0, ch, raw_data.tobytes()))
@@ -253,12 +254,13 @@ class EudaqEventSender(threading.Thread):
             if item is None:
                 logger.info("EudaqEventSender got sentinel; finishing.")
                 self._flush_remaining()
+                self.queue.task_done()
                 break
             frame_idx, ch, raw_data_blob = item
             # Convert into frame payloads
             raw_data_list = self.producer.ctrl.split_raw_data(raw_data_blob)
             # Check the expected number of n-frames
-            if len(raw_data_list) != self.n_frames:
+            if len(raw_data_list) != self.producer.n_frames:
                 logger.warning(f"Expected {self.producer.n_frames} bytes, got {len(raw_data_list)}")
 
             # Let's build all the data from frame idx. Need to obtain all channels
@@ -281,6 +283,7 @@ class EudaqEventSender(threading.Thread):
                     except Exception as e:
                         logger.exception(f"Failed to send event for frame-{frame_idx}: {e}")
                     del self.framebuf[frame_idx]
+                    self.queue.task_done()
         logger.info("EudaqEventSender exiting.")
 
     def _send_frame_event(self, frame_data: Dict[int, bytes]):
@@ -298,7 +301,7 @@ class EudaqEventSender(threading.Thread):
         if self.producer.n_trigger == 0:
             ev.SetBORE()
             ev.SetTag('producer_name', str(self.producer._name))
-            ch_str = ','.join( [str(ch) for ch in self.producer.channel] )
+            ch_str = ','.join( [str(ch) for ch in self.producer.channels] )
             ev.SetTag('channels', ch_str)
             # XXX
             # FIXME -- Very similar to the CAEN digi dut_names dict 
@@ -322,7 +325,6 @@ class EudaqEventSender(threading.Thread):
         self.producer.n_trigger += 1 
         # Send event
         self.producer.SendEvent(ev)
-        self.queue.task_done()
 
 
     def _flush_remaining(self):
@@ -341,6 +343,7 @@ class MSO6BProducer(pyeudaq.Producer):
     """
     """
     def __init__(self, name, runctrl):
+        pyeudaq.Producer.__init__(self, name, runctrl)
         # Acquiring the controller lock
         self.ctrl_lock = threading.Lock()
         self.ctrl = None
@@ -370,8 +373,10 @@ class MSO6BProducer(pyeudaq.Producer):
         # Update the class with the mandatory configuration
         parse_config(self, CONFIG_PARAMETERS, conf)
         
+        logger.setLevel(self.log_level)
+
         # OBtain the size of a block per frame (we have this info after config)
-        self.frame_size = self.record_length * self.bytes_per_point
+        ## --> self.frame_size = self.record_length * self.bytes_per_point
         # controller methods are synchronous; protect them with visa_lock
         with self.ctrl_lock:
             #Always in a know state
@@ -382,8 +387,6 @@ class MSO6BProducer(pyeudaq.Producer):
                     scale = self.scale_V,
                     target_window = self.target_window_s,
                     trigger_position = self.t_delay, 
-                    trigger_source = "EXT",
-                    trigger_level  = 0.5,
                     bpp = self.bytes_per_point)
             time.sleep(0.01)
             # And configure the fastframe
@@ -474,7 +477,7 @@ def main(name,runctrl):
     EUDAQ_INFO(f"[MSO6BProducer]: Connecting to runcontrol in {runctrl} ...")
     producer.Connect()
     time.sleep(2)
-    print('[MS06BProducer]: Connected')
+    print('[MSO6BProducer]: Connected')
     while(producer.IsConnected()):
         time.sleep(1)
 
