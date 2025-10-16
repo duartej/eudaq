@@ -164,7 +164,7 @@ class MSOController:
         # And re-activate all channels
         #self.write(f':SELECT:CH1 ON;:SELECT:CH2 ON;:SELECT:CH3 ON;:SELECT:CH4 ON')
  
-    def display_wavefrom(self, want_to_display=True):
+    def display_waveform(self, want_to_display=True):
         if want_to_display:
             display = 'ON'
         else:
@@ -243,7 +243,7 @@ class MSOController:
     # Trigger settings
     def set_edge_trigger(self, 
                          trigger_source: str = 'CH1',
-                         trigger_level: float = '1e-2', 
+                         trigger_level: float = 1e-2, 
                          trigger_slope: str = 'RISE'):
         """Set the trigger to edge in mode Normal
 
@@ -261,7 +261,7 @@ class MSOController:
         if trigger_source  == "AUX":
             # Trigger level to 1.4 TTL or -1.3 ECL, 
             # modify to provide the proper string
-            trigger_level = "TTL" if trigger_level > 0 else "ECL"            
+            trigger_level = "TTL" if trigger_level > 0 else "ECL" 
         self.trigger_level = trigger_level
 
         assert trigger_slope in [ "RISE", "FALL", "EITHER"], f"Wrong slope `{trigger_slope}`"
