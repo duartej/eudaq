@@ -380,7 +380,7 @@ class MSO6BProducer(pyeudaq.Producer):
             self.ctrl.preconfig(
                     active_channels = self.channels,
                     scale = self.scale_V,
-                    target_window = self.target_window_s
+                    target_window = self.target_window_s,
                     trigger_position = self.t_delay, 
                     trigger_source = "EXT",
                     trigger_level  = 0.5,
@@ -394,8 +394,8 @@ class MSO6BProducer(pyeudaq.Producer):
             self.ctrl.is_trigger_ready()
             # Set the preamble (to extract conversion factors, etc...)
             for ch in self.channels:
-                    #self.ctrl.write(f"DATa:SOUrce CH{ch}")
-                    self.wf_preamble[ch] = self.ctrl.wf_preamble()
+                    self.ctrl.write(f"DATa:SOUrce CH{ch}")
+                    self.wf_preamble[ch] = self.ctrl.wf_preamble
         logger.info("Scope configured.")
 
     @exception_handler
