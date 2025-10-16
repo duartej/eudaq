@@ -163,7 +163,14 @@ class MSOController:
         # Set a pre-defined configuration
         # And re-activate all channels
         #self.write(f':SELECT:CH1 ON;:SELECT:CH2 ON;:SELECT:CH3 ON;:SELECT:CH4 ON')
-    
+ 
+    def display_wavefrom(self, want_to_display=True):
+        if want_to_display:
+            display = 'ON'
+        else:
+            display = 'OFF'
+        self.write(f"DISPLAY:WAVEFORM {display}")
+
     # Some useful accessors 
 
     @property
@@ -426,8 +433,6 @@ class MSOController:
                   scale = [ 100e-3, 100e-3, 100e-3, 100e-3 ], 
                   target_window = None, 
                   trigger_position = 30, 
-                  trigger_source = "CH1",
-                  trigger_level  = 100e-3,
                   bpp: int = 2, 
                   ):
         """
@@ -466,15 +471,6 @@ class MSOController:
         self.write(f"HORizontal:MODE:RECOrdlength {self.record_length}")
         self.write(f"HORizontal:POSition {trigger_position}")
 
-        # FOR THE DISPLAY  
-        # Select the horizontal time base (time per division),
-        # Remember the scope has 10 divisions: total scale: 10 x t_div
-        # USe the target_window: 
-        # t_div = self.target_window/10 --? Automaticall in target_window
-        # self.write(f'HORizontal:SCAle {t_div}')
-        # The trigger delay ?? 
-        # self.write(f'HORizontal:POSition {t_delay}')
-
         self.write("ACQuire:STATE OFF")
         self.write("ACQuire:MODE SAMPLE")
 
@@ -483,14 +479,15 @@ class MSOController:
         self.write("DATa:ENCdg RIBinary")
         # The number of bytes per point
         self.write(f"WFMOutpre:BYT_Nr {bpp}")
+        # Data to be extracted
+        self.write(f"DATA:START 1")
+        self.write(f"DATA:STOP {self.record_length}")
 
         # disabling fast frame and FastAcq (just in case)
         self.write("HORizontal:FASTframe:STATE OFF")
         self.write("ACQuire:FASTAcq:STATE OFF")
         # Captures exactly 1 shot? defined with countp?
         self.set_acquisition_sequence()
-        # The trigger configuration 
-        self.set_edge_trigger(trigger_source=trigger_source, trigger_level=trigger_level, trigger_slope="RISE")
         
         logger.info(f"Configure: Active channels={active_channels}, Vertical scale={scale} V, Time division={self.target_window/10} s")
         logger.info(f"Configure: Acquire time window={self.target_window} [s], bytes_per_point={bpp}")
@@ -498,55 +495,29 @@ class MSOController:
     # ------------------------
     # Configuration FastFrame
     # ------------------------
-    def configure_fastframe_acq(self, 
-                                target_window: float = 200e-9, 
-                                bpp: int = 2, 
-                                n_frames: int = 1000, 
-                                trigger_source: str = "EXT"):
+    def configure_fastframe_acq(self, n_frames: int = 1000):
         """Configure the oscilloscope to acquire N-frames in fastFrame mode
 
         Parameters
         ----------
-        target_window: float
-            The time window to acquire the points 
-        bpp: int
-            Bytes per points 
         n_frames: int
             The number of frames to be obtained
-        trigger_source: str
-            The trigger source [CHannel or EXT]
         """
-        logger.info(f"Configure FastFrame: TimeWindow={target_window}, bytes_per_point={bpp}, Frames={n_frames}, Trigger source: {trigger_source}")
+        logger.info(f"Configure FastFrame: Frames={n_frames}")
         self.write("ACQuire:STATE OFF")
         self.write("ACQuire:MODE SAMPLE")
-        # Number of points
-        self.target_window = target_window
-        # Defined target_window -> record_length
-        self.write(f"HORizontal:MODE:RECOrdlength {self.record_length}")
-        # Be sure the same data length is provided with curve?
-        self.write(f"DATA:START 1")
-        self.write(f"DATA:STOP {self.record_length}")
-        # The right-hand, signed binary (2 bytes MSB
-        self.write("DATa:ENCdg RIBinary")
         # Enabling fast frame
         self.write("HORizontal:FASTframe:STATE ON")
         # Number of frames to be acquired
         self.n_frames = n_frames
         self.write(f"HORizontal:FASTframe:COUNt {self.n_frames}")
-        # The number of bytes per point
-        self.write(f"WFMOutpre:BYT_Nr {bpp}")
         # The oscilloscope will start to acquire as soon as possible 
         # (for instance, after a CURVE?, just when finish) --> BUT
         #self.set_acquisition_continous()
         self.set_acquisition_sequence()
-        # display streaming off to increase speed
-        ### PROV-XXX self.write("DISPLAY:WAVEFORM OFF")
-        # The trigger configuration  (wait for a regular trigger event)
-        # Note per default trigger_level= 1e-2 (TTL if AUX source) and slope=RISE
-        self.set_edge_trigger(trigger_source=trigger_source)
+        # display streaming off to increase speed ?
+        #self.display_waveform(False)
         # The DATA to be sent??  XXX
-        # self.dev.write(f"DATa:START {int(record_start)}")
-        # self.dev.write(f"DATa:STOP {int(record_stop)}")
         logger.debug("FastFrame configuration sent and ready...")
 
     # --------------------

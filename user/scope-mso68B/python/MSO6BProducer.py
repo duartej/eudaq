@@ -78,19 +78,19 @@ CONFIG_PARAMETERS = {
             type = float
             ),
         "scale_V": dict(
-            default = [ 100e3, 100e3, 100e3, 100e3],
+            default = [ 100e-3, 100e-3, 100e-3, 100e-3],
             type = list
             ),
-        "t_div_s": dict(
-            default = 10e-9
+        "target_window_s": dict(
+            default = 50e-9,
             type = float
             ),
         "t_delay": dict(
-            default = 20
+            default = 20,
             type = float
             ),
         "log_level": dict(
-            default = logging.INFO
+            default = logging.INFO,
             type = int 
             ),
         }
@@ -112,7 +112,7 @@ def parse_config(obj, config_schema, external_conf):
         try:
             param_value = t(received_param)
         except Exception as e:
-            EUDAQ_ERROR(f"The parameter {param_name} must be of type `{t}`: got {type(received_param)}"})
+            EUDAQ_ERROR(f"The parameter {param_name} must be of type `{t}`: got {type(received_param)}")
 
         # Add the parameter to the class
         setattr(obj,param_name, param_value)
@@ -329,7 +329,7 @@ class EudaqEventSender(threading.Thread):
         # attempt best-effort send for incomplete frames
         if not self.framebuf:
             return
-        logger.warning(f"Flushing {len(self.framebuf} incomplete frames")
+        logger.warning(f"Flushing {len(self.framebuf)} incomplete frames")
         for fidx in sorted(self.framebuf.keys()):
             try:
                 self._send_frame_event(self.framebuf[fidx])
@@ -380,18 +380,16 @@ class MSO6BProducer(pyeudaq.Producer):
             self.ctrl.preconfig(
                     active_channels = self.channels,
                     scale = self.scale_V,
-                    t_div = self.t_div_s
-                    t_delay = self.t_delay, 
+                    target_window = self.target_window_s
+                    trigger_position = self.t_delay, 
                     trigger_source = "EXT",
                     trigger_level  = 0.5,
-                    record_length  = self.record_length,
                     bpp = self.bytes_per_point)
             time.sleep(0.01)
             # And configure the fastframe
-            self.ctrl.configure_fastframe_acq(record_length=self.record_length,
-                                              bpp = self.bytes_per_point,
-                                              n_frames=self.n_frames,
-                                              trigger_source="EXT")
+            self.ctrl.configure_fastframe_acq(n_frames=self.n_frames)
+            # Trigger config
+            self.ctrl.set_edge_trigger(trigger_source="EXT", trigger_level=0.5, trigger_slope="FALL")
             # Check is ready
             self.ctrl.is_trigger_ready()
             # Set the preamble (to extract conversion factors, etc...)
