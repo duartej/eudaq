@@ -12,7 +12,6 @@
 #include <array>
 #include <cstdint>
 #include <algorithm>
-#include <regex>
 #include <numeric>
 #include <cmath>
 #include <iterator>
@@ -27,9 +26,9 @@ DutMap parse_dutinfo(const std::string& dutinfo_str) {
     std::string coords_str;
     
     // Divide by ';'
-    std::getline(ss, dut, ";");
-    std::getline(ss, channel_str, ";");
-    std::getline(ss, coords_str, ";");
+    std::getline(ss, dut, ';');
+    std::getline(ss, channel_str, ';');
+    std::getline(ss, coords_str, ';');
 
     int channel = std::stoi(channel_str);
     std::stringstream coordstream(coords_str);
@@ -66,27 +65,24 @@ class MSO6BRawEvent2StdEventConverter: public eudaq::StdEventConverter {
     private:
         void Initialize(eudaq::EventSPC bore, eudaq::ConfigurationSPC conf) const;
         // Helper functions
-        std::vector<double> payloadToWF(const std::vector<uint8_t> &payload, int channel) const;
-        int PolarityWF(const std::vector<float> & wf) const;
-        float AmplitudeWF(const std::vector<float> & wf) const;
+        std::vector<double> payloadToWF(const std::vector<uint8_t> &payload, int dev_id, int channel) const;
+        int PolarityWF(const std::vector<double> & wf) const;
+        float AmplitudeWF(const std::vector<double> & wf) const;
 
-        // The device-id being converted
-        int _dev_id;
-        
         // Producer name
         static std::map<int, std::string> _name;
         // XXX -- NEEDED?
-        static size_t _n_digitizers;
+        static size_t _n_scopes;
         static size_t _n_samples_per_waveform;
         // Waveform starting t0 and Dt
-        static std::map<std::map<int, float> > _t0;
-        static std::map<std::map<int, float> > _dt;
+        static std::map<int, float> _t0;
+        static std::map<int, float> _dt;
         // Scaling 
-        static std::map<std::map<int, float> > _ymult;
-        static std::map<std::map<int, float> > _yzero;
-        static std::map<std::map<int, float> > _yoff;
+        static std::map<int, std::map<int, float> > _ymult;
+        static std::map<int, std::map<int, float> > _yzero;
+        static std::map<int, std::map<int, float> > _yoff;
         // { Digitizer: { DUT: { channel : [ (row, col), (row, col), ... ],  ... 
-        static DutMap _dut_channel_coords;
+        static std::map<int,DutMap> _dut_channel_coords;
         // DUT : internal-id (sensor-id)
         static std::map<int, std::map<std::string,int> > _dut_names_id;
         // { Digitizer: { DUT (internal id, i.e. sensor-id): (n-col,n-row), ... 
@@ -104,12 +100,12 @@ namespace {
 std::map<int,std::string> MSO6BRawEvent2StdEventConverter::_name;
 size_t MSO6BRawEvent2StdEventConverter::_n_scopes = 0;
 size_t MSO6BRawEvent2StdEventConverter::_n_samples_per_waveform;
-std::map<std::map<int, float> > MSO6BRawEvent2StdEventConverter::_t0;
-std::map<std::map<int, float> > MSO6BRawEvent2StdEventConverter::_dt;
-std::map<std::map<int, float> > _ymult;
-std::map<std::map<int, float> > _yzero;
-std::map<std::map<int, float> > _yoff;
-DutMap _dut_channel_coords;
+std::map<int, float> MSO6BRawEvent2StdEventConverter::_t0;
+std::map<int, float> MSO6BRawEvent2StdEventConverter::_dt;
+std::map<int, std::map<int, float> > MSO6BRawEvent2StdEventConverter::_ymult;
+std::map<int, std::map<int, float> > MSO6BRawEvent2StdEventConverter::_yzero;
+std::map<int, std::map<int, float> > MSO6BRawEvent2StdEventConverter::_yoff;
+std::map<int, DutMap> MSO6BRawEvent2StdEventConverter::_dut_channel_coords;
 std::map<int, std::map<int, std::array<int,2>> > MSO6BRawEvent2StdEventConverter::_ncolumns_nrows;
 std::map<int, std::map<int,int> > MSO6BRawEvent2StdEventConverter::_npixels;
 std::map<int, std::map<std::string,int> > MSO6BRawEvent2StdEventConverter::_dut_names_id;
@@ -126,11 +122,11 @@ void MSO6BRawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, eudaq::Co
     // Extract all relevant info: DUT -> channels -> list of pixels bounded
     //  { dutname: { channel: [(col,row), ... 
     // No check in sizes, that's was done at producer level
-    _dut_channel_coords = parse_dutinfo( bore->GetTag("duts_info") );
+    _dut_channel_coords[device_id] = parse_dutinfo( bore->GetTag("duts_info") );
     // Assign the sensor id
     int sensor_id = 0;
-    for(const dutname_w: _dut_channel_coords) {
-        _dut_names_id[dutname.first] = sensor_id;
+    for(const auto & dutname: _dut_channel_coords[device_id]) {
+        _dut_names_id[device_id][dutname.first] = sensor_id;
         ++sensor_id;
     }
     
@@ -143,29 +139,29 @@ void MSO6BRawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, eudaq::Co
     
     // Extract the tags for each DUT:
     for(const auto & dutname_chcoordvect: _dut_channel_coords[device_id]) {
-        auto dut = dutname.first;
-        auto sensor_id = _dut_names_id[dut];
+        auto dut = dutname_chcoordvect.first;
+        auto sensor_id = _dut_names_id[device_id][dut];
         // Get the maximum nrows and ncolumns for the DUT
         // Loop over the channels:
         int nrow = -1;
         int ncol = -1;
         for(const auto & channel_colrow: dutname_chcoordvect.second) {
             // And loop over all the pixels bounded to this channel
-            for(const auto & colrow: channel_listcolrow.second) {
-                if(colrow[0] > ncol) {
-                    ncol = (colrow)[0];
+            for(const auto & colrow: channel_colrow.second) {
+                if(colrow.first > ncol) {
+                    ncol = colrow.first;
                 }
-                if(colrow[1] > nrow) {
-                    nrow = colrow[1];
+                if(colrow.second > nrow) {
+                    nrow = colrow.second;
                 }
             }
             // And the vertical scale info
-            std::string ch_str = "channel"+std::to_string(channel);
-            _ymult[device_id][channel_listcolrow.first] = bore->GetTag( std::string(ch_str+"_dv").c_str() );
-            _yzero[device_id][channel_listcolrow.first] = bore->GetTag( std::string(ch_str+"_v0").c_str() );
-            _yoff[device_id][channel_listcolrow.first] =  bore->GetTag( std::string(ch_str+"_voffset").c_str() );
+            std::string ch_str = "channel"+std::to_string(channel_colrow.first);
+            _ymult[device_id][channel_colrow.first] = std::stof( bore->GetTag( std::string(ch_str+"_dv").c_str() ) );
+            _yzero[device_id][channel_colrow.first] = std::stof( bore->GetTag( std::string(ch_str+"_v0").c_str() ) );
+            _yoff[device_id][channel_colrow.first] =  std::stof( bore->GetTag( std::string(ch_str+"_voffset").c_str() ) );
         }
-        _ncols_nrows[device_id][sensor_id] = { ncol+1, nrow+1 };
+        _ncolumns_nrows[device_id][sensor_id] = { ncol+1, nrow+1 };
         // Total number of pixels: Remember starting at 0, then 
        _npixels[device_id][sensor_id] = (nrow+1)*(ncol+1);
     }
@@ -175,17 +171,17 @@ void MSO6BRawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, eudaq::Co
     EUDAQ_INFO(" Defined DUTs in [" +_name[device_id]+ "] SCOPE: ");
     for(const auto & dutname_chcoords: _dut_channel_coords[device_id]) {
         const auto dutname = dutname_chcoords.first;
-        const auto sensor_id = _dut_names_id[dutname];
+        const auto sensor_id = _dut_names_id[device_id][dutname];
         EUDAQ_INFO(" [" + dutname + "], ID:" + std::to_string(sensor_id) +", "
                 + "(colsXrows): " + std::to_string(_ncolumns_nrows[device_id][sensor_id][0])
                 + "x" + std::to_string(_ncolumns_nrows[device_id][sensor_id][1])
                 + ", Total Pixels: " + std::to_string(_npixels[device_id][sensor_id])
                 + ", Total channels: "
-                +std::to_string(dutname_chcoords.second.size());
+                +std::to_string(dutname_chcoords.second.size()));
         for(const auto & ch_listpixels:dutname_chcoords.second) {
             std::string list_pixels;
             for(const auto & pixels: ch_listpixels.second) {
-                list_pixels += " ("+std::to_string(pixels[0]) + "," +std::to_string(pixels[1]) + ")";
+                list_pixels += " ("+std::to_string(pixels.first) + "," +std::to_string(pixels.second) + ")";
             }
             EUDAQ_INFO("   ==: CH" + std::to_string(ch_listpixels.first) + " ["+ list_pixels + " ]");
         }
@@ -198,7 +194,7 @@ void MSO6BRawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, eudaq::Co
 
 }
 
-std::vector<double> MSO6BRawEvent2StdEventConverter::payloadToWF(const std::vector<uint8_t> &payload, int channel) const {
+std::vector<double> MSO6BRawEvent2StdEventConverter::payloadToWF(const std::vector<uint8_t> &payload, int dev_id, int channel) const {
     
     // XXX Just assuming 16-bits, MSB-first (big-endian).
     // It can be incorporated different extractions depending on the bytes_per_point
@@ -210,14 +206,14 @@ std::vector<double> MSO6BRawEvent2StdEventConverter::payloadToWF(const std::vect
         uint8_t b1 = payload[2*i + 1];
         int16_t v = static_cast<int16_t>((b0 << 8) | b1);
         // scale to volts
-        wf[i] = (static_cast<double>(v) - _yoff[_dev_id][channel]) * _ymult[_dev_id][channel] + _yzero[_dev_id][channel] ;
+        wf[i] = (static_cast<double>(v) - _yoff[dev_id][channel]) * _ymult[dev_id][channel] + _yzero[dev_id][channel] ;
     }
 
     return wf;
 }
 
 // FIXME -- Calculate it once: use a memoizer
-int MSO6BRawEvent2StdEventConverter::PolarityWF(const std::vector<float> & wf) const {
+int MSO6BRawEvent2StdEventConverter::PolarityWF(const std::vector<double> & wf) const {
     // Extract polarity: This must be done from outside
     // using the configuration file --- XXX - TODO
 
@@ -235,12 +231,12 @@ std::cout << "POSITIVE-min: " << *itminmax.first << " max: " << *itminmax.second
 }
 
 
-float MSO6BRawEvent2StdEventConverter::AmplitudeWF(const std::vector<float>& waveform) const {
+float MSO6BRawEvent2StdEventConverter::AmplitudeWF(const std::vector<double>& waveform) const {
     // Rough estimation of the baseline using the median
     // But first use the right polarity to be sure we sort properly
     const int polarity = PolarityWF(waveform); 
-    std::vector<float> wf_abs(waveform);
-    for(float & v: wf_abs) {
+    std::vector<double> wf_abs(waveform);
+    for(double & v: wf_abs) {
         v *= polarity;
     }
 
@@ -318,12 +314,12 @@ bool MSO6BRawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdE
         Initialize(event, conf);
     }
 
-    _dev_id = event->GetDeviceN();
+    int dev_id = event->GetDeviceN();
 
     // Expecting one block per channel
-    if(event->NumBlocks() != _dut_channel_coords[_dev_id].size()) {
+    if(event->NumBlocks() != _dut_channel_coords[dev_id].size()) {
         EUDAQ_ERROR(" Expected one block per channel (n-channel: "+ 
-                std::to_string(_dut_channel_coords[_dev_id].size()) + "). Blocks: "+
+                std::to_string(_dut_channel_coords[dev_id].size()) + "). Blocks: "+
                 std::to_string(event->NumBlocks()) );
         return false;
     }
@@ -339,27 +335,27 @@ bool MSO6BRawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdE
         d2->SetTimestamp(d1->GetTimestampBegin(), d1->GetTimestampEnd(), d1->IsFlagTimestamp());
     }
 
-    const std::string producer_name = _name[d1->GetDeviceN()]; // XXX ? equivalent to _name[_dev_id]?
+    const std::string producer_name = _name[d1->GetDeviceN()]; // XXX ? equivalent to _name[dev_id]?
     // Each DUT is a plane
-    for(const auto & dutname_sensorid: _dut_names_id[_dev_id]) {
+    for(const auto & dutname_sensorid: _dut_names_id[dev_id]) {
         // XXX - Can we provide a dutname in the stdplane?? 
         const int sensor_id = dutname_sensorid.second;
         // Each DUT defines a plane
         eudaq::StandardPlane plane(sensor_id, "MSO6B", producer_name);
         // Define the size of the DUT (in columns and rows) --> Extracted from _ncolumns_nrows
         // Remember in here: first columns, then rows
-        plane.SetSizeZS( (uint32_t)_ncolumns_nrows[_dev_id][dutname_sensorid.second][0], 
-                (uint32_t)_ncolumns_nrows[_dev_id][dutname_sensorid.second][1],
+        plane.SetSizeZS( (uint32_t)_ncolumns_nrows[dev_id][dutname_sensorid.second][0], 
+                (uint32_t)_ncolumns_nrows[dev_id][dutname_sensorid.second][1],
                 0);
         
         // Each channel is stored in a block
         int pixid = 0;
-        for(const auto & ch_colrowlist: _dut_channel_coords[_dev_id][dutname_sensorid.first]) {
+        for(const auto & ch_colrowlist: _dut_channel_coords[dev_id][dutname_sensorid.first]) {
             const size_t n_block = ch_colrowlist.first;
-            std::vector<double> wf = payloadToWF(event->GetBlock(n_block), n_block);
+            std::vector<double> wf = payloadToWF(event->GetBlock(n_block), dev_id, n_block);
             
             // XXX -- Does this make sense? Just to avoid crashing... [PROV]
-            if(raw_data.size() == 0)
+            if(wf.size() == 0)
             {
                 //++pixid;
                 continue;
@@ -389,9 +385,9 @@ std::cout << "Block id: " << ch_colrowlist.first << " pixid: " << pixid << ", pi
     << " A=" << amplitude << std::endl ;
 }*/
                 // Note the signature introduce x,y -> col, row. (As it was stored)
-                plane.PushPixel(pixel[0], pixel[1], amplitude, uint32_t(0));
-                plane.SetPixelAuxInfo(pixid, dutname_sensorid.first+":CH"+std::to_string(ch_colrowlist.first)+":col"+std::to_string(pixel[0])+":row"+std::to_string(pixel[1]));
-                plane.SetWaveform(pixid, wf, _t0[_dev_id], _dt[_dev_id] );
+                plane.PushPixel(pixel.first, pixel.second, amplitude, uint32_t(0));
+                plane.SetPixelAuxInfo(pixid, dutname_sensorid.first+":CH"+std::to_string(ch_colrowlist.first)+":col"+std::to_string(pixel.first)+":row"+std::to_string(pixel.second));
+                plane.SetWaveform(pixid, wf, _t0[dev_id], _dt[dev_id] );
                 ++pixid;
             }
         }
