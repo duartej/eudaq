@@ -14,6 +14,7 @@ import logging
 import sys
 from typing import List, Dict
 import click
+import ast
 
 import numpy as np
 
@@ -56,21 +57,17 @@ CONFIG_PARAMETERS = {
             default = 2,
             type = int,
             ),
-        "channels": dict(
-            # list of channels to read
-            default = [1, 2, 3, 4],
-            type = list
-            ),
-        "dut_names": dict(
-            # Dut names corresponding to each channel, if the channel
-            # is in the same dut, the dut name must be explicitly repeated
-            default = ['DUT_1', 'DUT_2', 'DUT_3', 'DUT_4'],
-            type = list
-            ),
-        "pixel_channels": dict(
-            # The pixel (col,row) corresponding to the channel within the DUT
-            default = ['(0,0)', '(0,0)', '(0,0)', '(0,0)'],
-            type = list
+        "dut_dict": dict(
+            # list of dut with it's channels and the list
+            # of pixels bonded to that channel
+            default = { 'DUT1': {
+                1: [(0,0)], 
+                2: [(0,0)]
+                3: [(0,0)]
+                4: [(0,0)] 
+                },
+                       },
+            type = dict,
             ),
         "n_frames": dict(
             # frames expected per spill, adjust to R* T_spill
@@ -109,21 +106,21 @@ CONFIG_PARAMETERS = {
 
 def parse_config(obj, config_schema, external_conf):
     """
+    Obtain the p
     Parameters
     ---------
     """
     for param_name, param_meta in config_schema.items():
         try:
-            received_param = external_conf[param_name]
+            received_param = ast.literal_eval(external_conf[param_name])
+
         except KeyError:
             # No presence, then use default
             received_param = param_meta.get("default")
 
-        # Convert to the proper data type
+        # EValuate as python type
         t = param_meta.get("type")
-        try:
-            param_value = t(received_param)
-        except Exception as e:
+        if type(received_param) is not t:
             EUDAQ_ERROR(f"The parameter {param_name} must be of type `{t}`: got {type(received_param)}")
 
         # Add the parameter to the class
@@ -306,10 +303,7 @@ class EudaqEventSender(threading.Thread):
         if self.producer.n_trigger == 0:
             ev.SetBORE()
             ev.SetTag('producer_name', str(self.producer._name))
-            ch_str = ','.join( [str(ch) for ch in self.producer.channels] )
-            ev.SetTag('channels', ch_str)
-            ev.SetTag('dut_names', self.dut_names)
-            ev.SetTag('pixel_channels', self.pixel_channels)
+            ev.SetTag('duts_info', self.producer.duts_info)
             ev.SetTag('dt', str(self.producer.wf_preamble[1]["XINCR"]))
             ev.SetTag('t0', str(self.producer.wf_preamble[1]["XZERO"]))
             ev.SetTag('sampled_points', str(self.producer.record_length))
@@ -372,6 +366,19 @@ class MSO6BProducer(pyeudaq.Producer):
         conf = self.GetConfiguration().as_dict()
         # Update the class with the mandatory configuration
         parse_config(self, CONFIG_PARAMETERS, conf)
+        # Build the channels data member and prepare
+        # the string CVS to be sent to the BORE
+        self.duts_info = ''
+        # Note that the channels have to be used only once, otherwise 
+        # something was wrongly written in config
+        for dutname,channel_dict in self.dut_dict.items():
+            self.duts_info += f'{dutname};'
+            for ch, pixellist in self.channel_dict.items():
+                if ch in self.channels:
+                    EUDAQ_ERROR(f'Configuration error: The CH{ch} has already been assigned!')
+                self.channels.append( ch )
+                self.duts_info += f'{ch};'
+                self.duts_info += ",".join(f"{col},{row}" for col, row in pixellist)
         
         logger.setLevel(self.log_level)
 
@@ -424,7 +431,9 @@ class MSO6BProducer(pyeudaq.Producer):
             self.eudaq_sender.join(timeout=1.0)
         try:
             with self.ctrl_lock:
-                self.ctrl.close()
+                self.ctrl.clear_busy()
+                self.ctrl.dev.clear()
+                self.ctrl.clear_status()
         except Exception:
             pass
 
