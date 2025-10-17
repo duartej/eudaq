@@ -43,9 +43,9 @@ PREAMBLE_ORDERED_LIST = ["BYT_NR", # Byte per point, i.e. the binary field data 
                          "XUNIT",  # The unit of the x-axis (s or Hz)
                          "XINCR",  # The time, in xunit, between data points
                          "XZERO",  # The time between the trigger sample (PT_IFF) and the occurrence of actual trigger
-                         "PT_OFF", # The data point immediately following the trigger point relateive to DATA:STARt
+                         "PT_OFF", # The data point immediately following the trigger point relative to DATA:STARt
                          "YUNIT",  # The vertical units
-                         "YMULT",  # The multiplying factor to convert the data point values from digitizin levels to yunit
+                         "YMULT",  # The multiplying factor to convert the data point values from digitizing levels to yunit
                          "YOFF",   # The vertical position in digitizing levels (25 digitizing levels per vertical position)
                          "YZERO",  # The vertical offset
                          "DOMAIN", # The domain (TIME or FREQency)
@@ -53,7 +53,7 @@ PREAMBLE_ORDERED_LIST = ["BYT_NR", # Byte per point, i.e. the binary field data 
                          "CENTERFREQUENCY", # Frequency domain ... 
                          "SPAN",   # Frequency domain ...
                          "FFTLENGTH",# Frequency domain ...
-                         "RESAMPLE", # 1 - Every sample is returned (2 - everty other sample, ...)
+                         "RESAMPLE", # 1 - Every sample is returned (2 - every other sample, ...)
                          "MODE",    # ...
                          ]
 WFID_FIELDS = [ "SOURCE", "COUPLING", "VERTSCALE", "HORIZSCALE","RECORDLENGTH", "ACQUISITIONMODE"]
@@ -68,7 +68,7 @@ def _header_list_to_dict(result_str):
     pre_list = result_str.split(';')
     for key_val in pre_list:
         # XXX  -- What happens with :WATHERVER:MORE ? -> should it be
-        #         whateever_more? o maybe [whatever][more]
+        #         whatever_more? o maybe [whatever][more]
         key,val = key_val.split()
         result[key.lower()] = val
     return result
@@ -112,7 +112,7 @@ class MSOController:
             # t_frame = Record_length/sample_rate
             self.write('HORizontal:MODE MANUAL')
             # Fix maximum sample rate --> Automatic ???
-            # --> Looks like this is not workingself.write('HORizontal:MAIN:SAMPLERate 50e9')
+            # --> Looks like this is not working --> self.write('HORizontal:MAIN:SAMPLERate 50e9')
             # Any other? XXX
             # The time window per default: 20 ns (2 ns/div)
             self.target_window = 20e-9
@@ -291,7 +291,7 @@ class MSOController:
     def max_available_frames(self, safety_factor = 0.96):
         """Calculates the maximum number of frames taking into account:
             - the scope is able to get 62.5M points
-            - assume the total number of points must be splitted between channels
+            - assume the total number of points must be split between channels
 
         Parameters
         ----------
@@ -360,7 +360,7 @@ class MSOController:
 
     def split_raw_data(self, blob: bytes): 
         """Split a IEEE-488.2 block (#<nd><len><payload>\n) from raw
-        data of teh oscilloscope and parses them to return only the payload in bytes.
+        data of the oscilloscope and parses them to return only the payload in bytes.
 
         Parameters
         ----------
@@ -534,7 +534,7 @@ class MSOController:
     # --------------------
     def set_acquisition_sequence(self):
         """After take the number of Counted waveform stop acquisition
-        (single sequence adquisition)
+        (single sequence acquisition)
         """
         self.write("ACQuire:STOPAfter SEQUENCE")
 
@@ -671,7 +671,7 @@ class MSOController:
     #    self.write(f"DATa:FRAMESTART {frame}")
     #    self.write(f"DATa:FRAMESTOP {frame}")
     #    
-    #    # XXX -- Nota que directamente es posbile obtener numpySS s
+    #    # XXX -- Nota que directamente es posible obtener numpys
     #    # https://pyvisa.readthedocs.io/en/1.8/rvalues.html
     #    pre = self.wf_preamble
     #    bytes_per_point = int(pre.get("BYT_NR",1))
@@ -680,7 +680,7 @@ class MSOController:
     #    datatype = 'H' if bytes_per_point == 2 else 'B'
     #    dtype = np.int16 if bytes_per_point == 2 else np.int8
     #    try:
-    #        # XXX--- is_bin_endian depening BYT_OR and BN_FMT
+    #        # XXX--- is_bin_endian depending BYT_OR and BN_FMT
     #        data = self.dev.query_binary_values("CURVe?", datatype=datatype, container=list, header_fmt='ieee')
     #        return np.asarray(data, dtype=dtype)
     #    except Exception as e:
@@ -695,7 +695,7 @@ class MSOController:
             self._wf_preamble = {}
         txt = self.dev.query("WFMOutpre?").split(';')
         for i,key in enumerate(PREAMBLE_ORDERED_LIST):
-            # special key on 6, if exist XXX -- FIX ME existance
+            # special key on 6, if exist XXX -- FIX ME existence
             if key == "WFID":
                 wfid_dict = {}
                 for k, key_wfid in enumerate(WFID_FIELDS):

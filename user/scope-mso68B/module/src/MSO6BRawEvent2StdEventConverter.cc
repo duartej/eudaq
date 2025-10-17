@@ -21,7 +21,7 @@ using DutMap =  std::map<std::string, std::map<int, std::vector<std::pair<int,in
 
 // Helper functions to parse BORE tags
 DutMap parse_dutinfo(const std::string& dutinfo_str) {
-    std::stringstream ss(dutinto_str);
+    std::stringstream ss(dutinfo_str);
     std::string dut;
     std::string channel_str;
     std::string coords_str;
@@ -53,9 +53,9 @@ DutMap parse_dutinfo(const std::string& dutinfo_str) {
 
 // The pixels can be bounded to the same channel
 // CH : [ (col,row), ... ]
-// The Channels are not repited in the producer, then a Channel 
-// assignated to a DUT, it cannot be used in another DUT.
-// Therefore accessing through the channel is univocous
+// The Channels are not repeated in the producer, then a Channel 
+// assigned to a DUT, it cannot be used in another DUT.
+// Therefore accessing through the channel is univocal
 using PixelMap = std::map<int, std::vector<std::array<int,2>> >;
 
 class MSO6BRawEvent2StdEventConverter: public eudaq::StdEventConverter {
@@ -99,7 +99,7 @@ namespace {
     auto dummy0 = eudaq::Factory<eudaq::StdEventConverter>::Register<MSO6BRawEvent2StdEventConverter>(MSO6BRawEvent2StdEventConverter::m_id_factory);
 }
 
-// Static data members to avoid loosing info (after initialization of data members)
+// Static data members to avoid losing info (after initialization of data members)
 // [due to the re-creation of the instances each event?]
 std::map<int,std::string> MSO6BRawEvent2StdEventConverter::_name;
 size_t MSO6BRawEvent2StdEventConverter::_n_scopes = 0;
@@ -194,22 +194,23 @@ void MSO6BRawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, eudaq::Co
     // Configuration
     EUDAQ_INFO("Initialize::Waveform scale: number of samples: " + std::to_string(_n_samples_per_waveform) +
         ", t0 = " + std::to_string(_t0[device_id]) + " s., dt = " + std::to_string(_dt[device_id]) + ", s." +
-        " -> Time window: " << std::to_string(_t0[device_id]-_n_samples_per_waveform*_dt[device_id]) ); 
+        " -> Time window: " + std::to_string(_t0[device_id]-_n_samples_per_waveform*_dt[device_id]) ); 
 
 }
 
 std::vector<double> MSO6BRawEvent2StdEventConverter::payloadToWF(const std::vector<uint8_t> &payload, int channel) const {
     
-    // XXX Just assuming 16-bits, MSB-firts (big-endian).
+    // XXX Just assuming 16-bits, MSB-first (big-endian).
     // It can be incorporated different extractions depending on the bytes_per_point
     std::vector<double> wf;
     // 16-bit signed, MSB-first) 
-    for(std::size_t i = 0; i < npts; ++i) {
+    const size_t npts = payload.size() / 2 ; 
+    for(size_t i = 0; i < npts; ++i) {
         uint8_t b0 = payload[2*i];
         uint8_t b1 = payload[2*i + 1];
         int16_t v = static_cast<int16_t>((b0 << 8) | b1);
         // scale to volts
-        wf[i] = (static_cast<double>(v) - _yoff[_dev_id][channel]) * ymult[_dev_id][channel] + yzero[_dev_id][channel] ;
+        wf[i] = (static_cast<double>(v) - _yoff[_dev_id][channel]) * _ymult[_dev_id][channel] + _yzero[_dev_id][channel] ;
     }
 
     return wf;
@@ -282,7 +283,7 @@ float MSO6BRawEvent2StdEventConverter::AmplitudeWF(const std::vector<float>& wav
 //std::cout << " Baseline: " << baseline << " -- " << wf_amplitude_max 
 //    << " stdDev: " << stddev << " --> max > 3_stddev? " 
 //    << (std::fabs(wf_amplitude_max) > 3.*(std::fabs(baseline)+stddev)) << std::endl;
-    // Assume 3 sigma to be signal XXX -- Algortihm fails when negative!!!
+    // Assume 3 sigma to be signal XXX -- Algorithm fails when negative!!!
     if( std::fabs(wf_amplitude_max) > 3.0*(std::fabs(baseline) + stddev) ) {
     /* -- XXX - WIP : what I was doing?
 std::cout <<  std::endl;
@@ -347,8 +348,8 @@ bool MSO6BRawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdE
         eudaq::StandardPlane plane(sensor_id, "MSO6B", producer_name);
         // Define the size of the DUT (in columns and rows) --> Extracted from _ncolumns_nrows
         // Remember in here: first columns, then rows
-        plane.SetSizeZS( (uint32_t)_ncolumns_nrows[dev_id][dutname_sensorid.second][0], 
-                (uint32_t)_ncolumns_nrows[dev_id][dutname_sensorid.second][1],
+        plane.SetSizeZS( (uint32_t)_ncolumns_nrows[_dev_id][dutname_sensorid.second][0], 
+                (uint32_t)_ncolumns_nrows[_dev_id][dutname_sensorid.second][1],
                 0);
         
         // Each channel is stored in a block
@@ -357,7 +358,7 @@ bool MSO6BRawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdE
             const size_t n_block = ch_colrowlist.first;
             std::vector<double> wf = payloadToWF(event->GetBlock(n_block), n_block);
             
-            // XXX -- Make this sense? Just to avoid crashing... [PROV]
+            // XXX -- Does this make sense? Just to avoid crashing... [PROV]
             if(raw_data.size() == 0)
             {
                 //++pixid;
@@ -369,7 +370,7 @@ std::cout << "--------------------------------------- " << std::endl;
 std::cout << "[" << producer_name << "] DUT: " << dutname_sensorid.first << " Sensor: " << dutname_sensorid.second  << " PIXID: " << pixid << std::endl;
  }*/
             
-            // Each channel is wirebonded to the the list of pixels, assign
+            // Each channel is wire-bonded to the the list of pixels, assign
             // same amplitude and waveform for all the belonging pixels
 
             // XXX -- Is this what we want? Or maybe extract the integral? 
@@ -384,7 +385,7 @@ std::cout << "DUT: " << dutname_sensorid.first << " Sensor: " << dutname_sensori
             for(const auto & pixel: ch_colrowlist.second) {
 /*if(producer_name == "CAEN_IJS")
 {
-std::cout << "Block id: " << ch_rowcollist.first << " pixid: " << pixid << ", pixel: col-" << pixel[1] << " ,row-" << pixel[0]
+std::cout << "Block id: " << ch_colrowlist.first << " pixid: " << pixid << ", pixel: col-" << pixel[0] << " ,row-" << pixel[1]
     << " A=" << amplitude << std::endl ;
 }*/
                 // Note the signature introduce x,y -> col, row. (As it was stored)

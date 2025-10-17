@@ -18,7 +18,6 @@ import ast
 
 import numpy as np
 
-### Need extern as path to import MSOCOntroller?
 from MSOController import MSOController
 
 import pyeudaq
@@ -105,10 +104,12 @@ CONFIG_PARAMETERS = {
         }
 
 def parse_config(obj, config_schema, external_conf):
-    """
-    Obtain the p
+    """Obtain the configuration parameters
+
     Parameters
     ---------
+    config_schema: TODO
+    external_config:  TODO
     """
     for param_name, param_meta in config_schema.items():
         try:
@@ -118,13 +119,13 @@ def parse_config(obj, config_schema, external_conf):
             # No presence, then use default
             received_param = param_meta.get("default")
 
-        # EValuate as python type
+        # Evaluate as python type
         t = param_meta.get("type")
         if type(received_param) is not t:
             EUDAQ_ERROR(f"The parameter {param_name} must be of type `{t}`: got {type(received_param)}")
 
         # Add the parameter to the class
-        setattr(obj,param_name, param_value)
+        setattr(obj,param_name, received_param)
 
 
 # ----------------------------
@@ -181,7 +182,7 @@ class FrameReader(threading.Thread):
                     raw_data = self.ctrl.read_all_frame_channel(ch)
                     if len(raw_data) == 0:
                         logger.warning(f"Empty read for CH-{ch}")
-                    # FIXME -- Check the record lenght?
+                    # FIXME -- Check the record length?
                     # put into queue (block if full
                     # XXX ?? self.queue.put((0, ch, raw_data.tobytes()))
                     # Send the whole channel data (all n-frames)
@@ -213,7 +214,7 @@ class FrameReader(threading.Thread):
     #                try:
     #                    with self.ctrl_lock:
     #                        # no conversion, just binary 
-    #                        raw_data = self.ctrl.read_frame_channelch, frame)
+    #                        raw_data = self.ctrl.read_frame_channel ch, frame)
     #                    if len(raw_data) == 0:
     #                        logger.warning(f"Empty read for frame-%{frame} in CH-{ch}")
     #                    # FIXME -- Check the record lenght?
@@ -225,7 +226,7 @@ class FrameReader(threading.Thread):
     #            # signal end-of-burst
     #            self.queue.put(None)
     #            logger.info("FrameReader finished and placed sentinel in queue.")
-    #            # Activate again the triggers, note in RUNSTOP mode the acquistion will resume immediately
+    #            # Activate again the triggers, note in RUNSTOP mode the acquisition will resume immediately
     #            # XXX In SEQUENCE mode, you need the self.producer.arm_acquisition
     #            self.ctrl.clear_busy()
 
@@ -270,12 +271,6 @@ class EudaqEventSender(threading.Thread):
                 frame_idx = i + 1
                 if (frame_idx) not in self.framebuf:
                     self.framebuf[frame_idx] = {}
-                # This must be in teh converter!!!
-                #if len(raw_data_list) != self.producer.frame_size:
-                #    logger.warning(f"Expected {self.producer.frame_size} bytes, got {len(raw_data_list)}")
-                #    n_frames = len(raw_data) // (self.producer.record_length * self.producer.bytes_per_point)
-                #else:
-                #    n_frames = self.producer.n_frames
                 self.framebuf[frame_idx][ch] = raw_data_list[i]
                 # if we have all channels for this frame, send the event, if 
                 # not just next iteration, it should be in the queue
@@ -373,7 +368,7 @@ class MSO6BProducer(pyeudaq.Producer):
         # something was wrongly written in config
         for dutname,channel_dict in self.dut_dict.items():
             self.duts_info += f'{dutname};'
-            for ch, pixellist in self.channel_dict.items():
+            for ch, pixellist in channel_dict.items():
                 if ch in self.channels:
                     EUDAQ_ERROR(f'Configuration error: The CH{ch} has already been assigned!')
                 self.channels.append( ch )
@@ -382,11 +377,11 @@ class MSO6BProducer(pyeudaq.Producer):
         
         logger.setLevel(self.log_level)
 
-        # OBtain the size of a block per frame (we have this info after config)
+        # Obtain the size of a block per frame (we have this info after config)
         ## --> self.frame_size = self.record_length * self.bytes_per_point
         # controller methods are synchronous; protect them with visa_lock
         with self.ctrl_lock:
-            #Always in a know state
+            #Always in a known state
             self.ctrl.reset()
             # Need to configure the basic 
             self.ctrl.preconfig(
@@ -475,7 +470,7 @@ class MSO6BProducer(pyeudaq.Producer):
 @click.option('-n','--name', default='scope_mso6b',
               help='Name for the producer (default "scope_mso6b")')
 @click.option('-r','--runctrl',default='tcp://localhost:44000',
-              help='Address of the run control, for example (and default) "tcp://localhost:44000"')
+              help='Address of the run control, (default: "tcp://localhost:44000)"')
 def main(name,runctrl):
     producer = MSO6BProducer(name,runctrl)
     EUDAQ_INFO(f"[MSO6BProducer]: Connecting to runcontrol in {runctrl} ...")
