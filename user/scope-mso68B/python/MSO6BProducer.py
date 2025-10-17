@@ -61,6 +61,17 @@ CONFIG_PARAMETERS = {
             default = [1, 2, 3, 4],
             type = list
             ),
+        "dut_names": dict(
+            # Dut names corresponding to each channel, if the channel
+            # is in the same dut, the dut name must be explicitly repeated
+            default = ['DUT_1', 'DUT_2', 'DUT_3', 'DUT_4'],
+            type = list
+            ),
+        "pixel_channels": dict(
+            # The pixel (col,row) corresponding to the channel within the DUT
+            default = ['(0,0)', '(0,0)', '(0,0)', '(0,0)'],
+            type = list
+            ),
         "n_frames": dict(
             # frames expected per spill, adjust to R* T_spill
             default = 3000,
@@ -297,13 +308,8 @@ class EudaqEventSender(threading.Thread):
             ev.SetTag('producer_name', str(self.producer._name))
             ch_str = ','.join( [str(ch) for ch in self.producer.channels] )
             ev.SetTag('channels', ch_str)
-            # XXX
-            # FIXME -- Very similar to the CAEN digi dut_names dict 
-            # XXX
-            # --> ev.SetTag('dut_names', )
-            # XXX
-            # FIXME -- Very similar to the CAEN digi dut_names dict 
-            # XXX
+            ev.SetTag('dut_names', self.dut_names)
+            ev.SetTag('pixel_channels', self.pixel_channels)
             ev.SetTag('dt', str(self.producer.wf_preamble[1]["XINCR"]))
             ev.SetTag('t0', str(self.producer.wf_preamble[1]["XZERO"]))
             ev.SetTag('sampled_points', str(self.producer.record_length))
