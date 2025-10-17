@@ -61,9 +61,9 @@ CONFIG_PARAMETERS = {
             # of pixels bonded to that channel
             default = { 'DUT1': {
                 1: [(0,0)], 
-                2: [(0,0)]
-                3: [(0,0)]
-                4: [(0,0)] 
+                2: [(0,0)],
+                3: [(0,0)],
+                4: [(0,0)],
                 },
                        },
             type = dict,
