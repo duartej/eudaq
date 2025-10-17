@@ -4,6 +4,9 @@
 #include "eudaq/RawEvent.hh"
 #include "eudaq/Logger.hh"
 
+#include <sstream>
+#include <tuple>
+
 #include <vector>
 #include <map>
 #include <array>
@@ -14,11 +17,42 @@
 #include <cmath>
 #include <iterator>
 
-// VERY SIMILAR TO CAEN DIGI -- needed?
-// XXX -- FIXME
-// SCOPE CREATE THIS structure in BORE: { channel : [ (row, col), (row, col), ... ], 
-// XXX -- FIXME
-// Each channel can be bounded to several diodes/pixels
+using DutMap =  std::map<std::string, std::map<int, std::vector<std::pair<int,int>>>>;
+
+// Helper functions to parse BORE tags
+DutMap parse_dutinfo(const std::string& dutinfo_str) {
+    std::stringstream ss(dutinto_str);
+    std::string dut;
+    std::string channel_str;
+    std::string coords_str;
+    
+    // Divide by ';'
+    std::getline(ss, dut, ";");
+    std::getline(ss, channel_str, ";");
+    std::getline(ss, coords_str, ";");
+
+    int channel = std::stoi(channel_str);
+    std::stringstream coordstream(coords_str);
+    std::string value;
+    std::vector<int> numbers;
+
+    // Divide by ','
+    while( std::getline(coordstream, value, ',') ) {
+        numbers.push_back(std::stoi(value));
+    }
+
+    DutMap dut_map;
+
+    // Convert into (col,row) pairs
+    for(size_t i = 0; i + 1 < numbers.size(); i += 2) {
+        dut_map[dut][channel].push_back({numbers[i], numbers[i+1]});
+    }
+
+    return dut_map;
+}
+
+// The pixels can be bounded to the same channel
+// CH : [ (col,row), ... ]
 using PixelMap = std::map<int, std::vector<std::array<int,2>> >;
 
 class MSO6BRawEvent2StdEventConverter: public eudaq::StdEventConverter {
@@ -48,14 +82,13 @@ class MSO6BRawEvent2StdEventConverter: public eudaq::StdEventConverter {
         static std::map<int, float> _yoff;
         // XXX - TBD?
         // XXX -- TBD?
-        static std::map<int, std::vector<int> > _dut_channel_list;
         // { Digitizer: { DUT: { channel : [ (row, col), (row, col), ... ],  ... 
-        static std::map<int, std::map<int, PixelMap> > _dut_channel_arrangement;
+        static DutMap _dut_channel_coords;
         // { Digitizer: { DUT: (n-row,n-col), ... 
         static std::map<int, std::map<int, std::array<int,2>> > _nrows_ncolumns;
         // { Digitizer: { DUT: npixels, ...
         static std::map<int, std::map<int,int> > _npixels;
-        // Human-readable name related with the internal DUT-id
+        // Human-readable name related with the internal DUT-id (sensor-id)
         static std::map<int, std::map<std::string,int> > _dut_names_id;
 };
 
@@ -71,8 +104,7 @@ size_t MSO6BRawEvent2StdEventConverter::_n_samples_per_waveform;
 std::map<int, size_t> MSO6BRawEvent2StdEventConverter::_n_duts;
 std::map<int, float> MSO6BRawEvent2StdEventConverter::_t0;
 std::map<int, float> MSO6BRawEvent2StdEventConverter::_dt;
-std::map<int, std::vector<int> > MSO6BRawEvent2StdEventConverter::_dut_channel_list;
-std::map<int, std::map<int, PixelMap> > MSO6BRawEvent2StdEventConverter::_dut_channel_arrangement;
+DutMap _dut_channel_coords;
 std::map<int, std::map<int, std::array<int,2>> > MSO6BRawEvent2StdEventConverter::_nrows_ncolumns;
 std::map<int, std::map<int,int> > MSO6BRawEvent2StdEventConverter::_npixels;
 std::map<int, std::map<std::string,int> > MSO6BRawEvent2StdEventConverter::_dut_names_id;
@@ -80,59 +112,38 @@ std::map<int, std::map<std::string,int> > MSO6BRawEvent2StdEventConverter::_dut_
 void MSO6BRawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, eudaq::ConfigurationSPC conf) const {
     
     const int device_id = bore->GetDeviceN();
-    
     // How many times are initializing = scopes present in the event
     // FIXME -- Use the DeviceN id?
     ++_n_scopes;
-    
     // Name of the producer
     _name[device_id] = bore->GetTag("producer_name");
-
-    // XXX -- Identify the DUTS with the Channels
-    //
+    
+    // Extract all relevant info: DUT -> channels -> list of pixels bounded
+    //  { dutname: { channel: [(col,row), ... 
+    // No check in sizes, that's was done at producer level
+    _dut_channel_coords = parse_dutinfo( bore->GetTag("duts_info") );
+    // Assign the sensor id
+    int sensor_id = 0;
+    for(const dutname_w: _dut_channel_coords) {
+        _dut_names_id[dutname.first] = sensor_id;
+        ++sensor_id;
+    }
+    
     // The record length and horizontal scales
     _n_samples_per_waveform = std::stoi(bore->GetTag("sampled_points"));
     // Extract the initial and the temporal step value of the waveforms
     // --- in SECONDS
     _t0[device_id] = std::stof(bore->GetTag("t0"));
     _dt[device_id] = std::stof(bore->GetTag("dt"));
-
     
-    // Get the list of DUTs so it can be extracted all channels and row-col mapping:
-    std::string s( bore->GetTag("dut_names") );
-    // XXX - Provisional (ask MS to list() the dict keys)
-    size_t start_rm = s.find("dict_keys");
-    size_t end_rm = s.find("(");
-    if(start_rm != std::string::npos && end_rm != std::string::npos) {
-        s.erase(start_rm, end_rm - start_rm + 1);
-    }    
-    // XXX - END Provisional
-    for (char c : {'[', ']', ')', '\'', '\"',}) {
-        s.erase(remove(s.begin(), s.end(), c), s.end());
-    }
-    std::string delimiter = ", ";
-    size_t pos = 0;
-    int dut_internal_id = 0;
-    while((pos = s.find(delimiter)) != std::string::npos) {
-        std::string token = s.substr(0, pos);
-        _dut_names_id[device_id][token] = dut_internal_id;
-        s.erase(0, pos + delimiter.length());
-        ++dut_internal_id;
-    }
-    // And the last one...
-    _dut_names_id[device_id][s] = dut_internal_id;
-    // The number of DUTS
-    _n_duts[device_id] = _dut_names_id[device_id].size();
-
     // Extract the tags for each DUT:
-    for(const auto & dutname_id: _dut_names_id[device_id]) {
-        _dut_channel_arrangement[device_id][dutname_id.second] = GetDUTPixelMap(bore->GetTag(dutname_id.first));
+    for(const auto & dutname_chcoordvect: _dut_channel_coords[device_id]) {
+        auto dut = dutname.first;
         // Get the maximum nrows and ncolumns for the DUT
         // Loop over the channels:
         int nrow = -1;
         int ncol = -1;
-        for(const auto & channel_listrowcol: _dut_channel_arrangement[device_id][dutname_id.second] ) {
-            _dut_channel_list[device_id].push_back(channel_listrowcol.first);
+        for(const auto & channel_rowcol: dutname_chcoordvect.second) {
             // And loop over all the pixels bounded to this channel
             for(const auto & rowcol: channel_listrowcol.second) {
                 if(rowcol[0] > nrow) {
@@ -142,21 +153,22 @@ void MSO6BRawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, eudaq::Co
                     ncol = (rowcol)[1];
                 }
             }
-            _ymult[device_id][channel_listrowcol.first] = // XXX extract channel{ch}_dv
-            _yzero[device_id][channel_listrowcol.first] = // XXX extract channel{ch}_v0
-            _yoff[device_id][channel_listrowcol.first] =  // XXX extract channel{ch}_voffset
+            // And the vertical scale info
+            std::string ch_str = "channel"+std::to_string(channel);
+            _ymult[device_id][channel_listrowcol.first] = bore->GetTag( std::string(ch_str+"_dv").c_str() );
+            _yzero[device_id][channel_listrowcol.first] = bore->GetTag( std::string(ch_str+"_v0").c_str() );
+            _yoff[device_id][channel_listrowcol.first] =  bore->GetTag( std::string(ch_str+"_voffset").c_str() );
         }
         _nrows_ncolumns[device_id][dutname_id.second] = { nrow+1, ncol+1 };
         // Total number of pixels: Remember starting at 0, then 
        _npixels[device_id][dutname_id.second] = (nrow+1)*(ncol+1);
-       // And the 
     }
 
 
     // Print-out the topology of the sensor and wire-bonding
     EUDAQ_INFO(" Defined DUTs in [" +_name[device_id]+ "] SCOPE: ");
-    for(auto & dn_id: _dut_names_id[device_id]) {
-        EUDAQ_INFO(" [" + dn_id.first + "], ID:" + std::to_string(dn_id.second) +", "
+    for(const auto & dutname_chcoords: _dut_channel_coords[device_id]) {
+        EUDAQ_INFO(" [" + dutname_chcoords.first + "], ID:" + std::to_string(dn_id.second) +", "
                 + "(rowsXcols): " + std::to_string(_nrows_ncolumns[device_id][dn_id.second][0])
                 + "x" + std::to_string(_nrows_ncolumns[device_id][dn_id.second][1])
                 + ", Total Pixels: " + std::to_string(_npixels[device_id][dn_id.second])
