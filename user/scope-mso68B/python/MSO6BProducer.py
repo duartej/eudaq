@@ -40,6 +40,10 @@ INIT_PARAMETERS = {
             default = "TCPIP::192.168.5.12::INSTR",
             type = str
             ),
+        "afg_resource": dict(
+            default = "ASRL/dev/ttyACM0::INSTR",
+            type = str
+            ),
         "timeout_ms": dict(
             default = 20000,
             type = int
@@ -47,11 +51,6 @@ INIT_PARAMETERS = {
         }
 
 CONFIG_PARAMETERS = {
-        "record_length": dict(
-            # samples per frame
-            default = 2500,
-            type = int
-            ), 
         "bytes_per_point": dict(
             # 1 (8-bit) or 2 (16-bit)
             default = 2,
@@ -83,6 +82,7 @@ CONFIG_PARAMETERS = {
             type = list
             ),
         "target_window_s": dict(
+            # The total width of the acquisition window in s.
             default = 50e-9,
             type = float
             ),
@@ -139,21 +139,15 @@ class FrameReader(threading.Thread):
     When done, puts a sentinel None into the queue to indicate end-of-burst.
     """
 
-    def __init__(self, producer: pyeudaq.Producer ,
-                 ctrl_lock: threading.Lock,
-                 data_queue: queue.Queue, 
-                 n_frames: int, channels: 
-                 List[int],
-                 record_length: int, 
-                 bytes_per_point: int):
+    def __init__(self, producer: pyeudaq.Producer):
         # Initialize 
         super().__init__(daemon=True)
         self.producer = producer
         self.ctrl = self.producer.ctrl
-        self.ctrl_lock = ctrl_lock
-        self.queue = data_queue
-        self.n_frames = int(n_frames)
-        self.channels = list(channels)
+        self.ctrl_lock = self.producer.ctrl_lock
+        self.queue = self.producer.data_q
+        self.n_frames = self.producer.n_frames
+        self.channels = self.producer.channels
         self._stop = threading.Event()
         # preamble cache per channel
         self.preamble = {}
@@ -249,7 +243,7 @@ class EudaqEventSender(threading.Thread):
         """
         """
         logger.debug("EudaqEventSender started.")
-        while self.producer._running:
+        while self.producer._running and self._stop:
             item = self.queue.get()
             if item is None:
                 logger.info("EudaqEventSender got sentinel; finishing.")
@@ -362,7 +356,7 @@ class MSO6BProducer(pyeudaq.Producer):
         # Initialize the oscilloscope
         parse_config(self, INIT_PARAMETERS, initconf)
         # Start and connect the controller
-        self.ctrl = MSOController(resource_string = self.resource, timeout_ms = self.timeout_ms)
+        self.ctrl = MSOController(resource_string = self.resource, timeout_ms = None, afg_resource =  self.afg_resource)
         EUDAQ_INFO("MSO6B: Initialized..")
 
     
@@ -413,6 +407,9 @@ class MSO6BProducer(pyeudaq.Producer):
         Stop ongoing threads and close the scope.
         """
         logger.info("Stopping producer.")
+        
+        self._running = False
+        
         if self.reader is not None and self.reader.is_alive():
             self.reader.stop()
             self.reader.join(timeout=1.0)
@@ -425,7 +422,6 @@ class MSO6BProducer(pyeudaq.Producer):
         except Exception:
             pass
 
-        self._running = False
         logger.info("Producer stopped.")
 
     @exception_handler
@@ -449,18 +445,11 @@ class MSO6BProducer(pyeudaq.Producer):
 
         # Then acquisition of the frames 
         # create and start reader (producer) thread
-        self.reader = FrameReader(producer =self,
-                                  ctrl_lock=self.ctrl_lock,
-                                  data_queue=self.data_q,
-                                  n_frames=self.n_frames,
-                                  channels=self.channels,
-                                  record_length=self.record_length,
-                                  bytes_per_point=self.bytes_per_point,
-                                  )
+        self.reader = FrameReader(producer =self)
         self.reader.start()
         
 
-        # Wait for reader and sender to finish
+        # Wait for reader and sender to finish before stopping the run
         logger.info("Waiting for reader thread to finish (this may take time depending on data volume).")
         self.reader.join()
         logger.info("Reader finished. Waiting for sender to finish.")
