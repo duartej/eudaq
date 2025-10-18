@@ -209,11 +209,10 @@ class MSOController:
 
     @property
     def trigger_state(self):
-        self._trigger_state = self.query('TRIGger:STATE?')
-        return self._trigger_state
+        return self.query('TRIGger:STATE?')
 
     def is_trigger_ready(self):
-        return self._trigger_state == 'READY'
+        return self.trigger_state == 'READY'
 
     @property
     def trigger_level(self):
