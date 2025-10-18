@@ -44,10 +44,10 @@ INIT_PARAMETERS = {
             default = "ASRL/dev/ttyACM0::INSTR",
             type = str
             ),
-        "timeout_ms": dict(
-            default = 20000,
-            type = int
-            ),
+        #"timeout_ms": dict(
+        #    default = 20000,
+        #    type = int
+        #    ),
         }
 
 CONFIG_PARAMETERS = {
@@ -94,7 +94,7 @@ CONFIG_PARAMETERS = {
             type = float
             ),
         "t_delay": dict(
-            default = 20,
+            default = 20.0,
             type = float
             ),
         "log_level": dict(
@@ -112,15 +112,17 @@ def parse_config(obj, config_schema, external_conf):
     external_config:  TODO
     """
     for param_name, param_meta in config_schema.items():
+        # Evaluate as python type
+        t = param_meta.get("type")
         try:
-            received_param = ast.literal_eval(external_conf[param_name])
-
+            if t is str:
+                received_param = external_conf[param_name]
+            else:
+                received_param = ast.literal_eval(external_conf[param_name])
         except KeyError:
             # No presence, then use default
             received_param = param_meta.get("default")
 
-        # Evaluate as python type
-        t = param_meta.get("type")
         if type(received_param) is not t:
             EUDAQ_ERROR(f"The parameter {param_name} must be of type `{t}`: got {type(received_param)}")
 
@@ -353,6 +355,8 @@ class MSO6BProducer(pyeudaq.Producer):
         # Start and connect the controller
         self.ctrl = MSOController(resource_string = self.resource, timeout_ms = None, afg_resource =  self.afg_resource)
         EUDAQ_INFO("MSO6B: Initialized..")
+        EUDAQ_INFO(f"MSO6B: Scope resource: {self.resource}")
+        EUDAQ_INFO(f"MSO6B: AFG   resource: {self.afg_resource}")
 
     
     @exception_handler
@@ -364,6 +368,8 @@ class MSO6BProducer(pyeudaq.Producer):
         # Build the channels data member and prepare
         # the string CVS to be sent to the BORE
         self.duts_info = ''
+        # Create the channels form the dut_dict
+        self.channels = []
         # Note that the channels have to be used only once, otherwise 
         # something was wrongly written in config
         for dutname,channel_dict in self.dut_dict.items():
@@ -384,13 +390,17 @@ class MSO6BProducer(pyeudaq.Producer):
             #Always in a known state
             self.ctrl.reset()
             # Need to configure the basic 
-            self.ctrl.preconfig(
-                    active_channels = self.channels,
-                    scale = self.scale_V,
-                    target_window = self.target_window_s,
-                    trigger_position = self.t_delay, 
-                    bpp = self.bytes_per_point)
-            time.sleep(0.01)
+            try:
+                self.ctrl.preconfig(
+                        active_channels = self.channels,
+                        scale = self.scale_V,
+                        target_window = self.target_window_s,
+                        trigger_position = self.t_delay, 
+                        bpp = self.bytes_per_point)
+                time.sleep(0.01)
+            except AssertionError as e:
+                # Just capture the error, let it in error state
+                EUDAQ_ERROR(f'{e}')
             # And configure the fastframe
             self.ctrl.configure_fastframe_acq(n_frames=self.n_frames)
             # Trigger config
