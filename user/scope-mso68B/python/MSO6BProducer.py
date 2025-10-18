@@ -410,7 +410,7 @@ class MSO6BProducer(pyeudaq.Producer):
             # And configure the fastframe
             self.ctrl.configure_fastframe_acq(n_frames=self.n_frames)
             # Trigger config
-            self.ctrl.set_edge_trigger(trigger_source="EXT", trigger_level=0.5, trigger_slope="FALL")
+            self.ctrl.set_edge_trigger(trigger_source="EXT", trigger_level=0.5, trigger_slope="RISE")
             # Check is ready
             self.ctrl.is_trigger_ready()
             # Set the preamble (to extract conversion factors, etc...)
