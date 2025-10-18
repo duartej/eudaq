@@ -118,9 +118,12 @@ def parse_config(obj, config_schema, external_conf):
             if t is str:
                 received_param = external_conf[param_name]
             else:
-                received_param = ast.literal_eval(external_conf[param_name])
+                try:
+                    received_param = ast.literal_eval(external_conf[param_name])
+                except SyntaxError as e:
+                    EUDAQ_ERROR(f"Conversion went wrong for `{param_name}`: value from config {external_conf[param_name]}")
         except KeyError:
-            # No presence, then use default
+            # No present, then use default
             received_param = param_meta.get("default")
 
         if type(received_param) is not t:
@@ -163,16 +166,18 @@ class FrameReader(threading.Thread):
         # preamble cache per channel
         self.preamble = {}
 
+
     def stop(self):
         self._stop.set()
 
     def run(self):
         """The actual reading
         """
-        logger.info("FrameReader starting: reading %d frames x channels %s", self.n_frames, self.channels)
+        logger.info(f"FrameReader starting: reading {self.n_frames} frames x channels {self.channels}")
         # Read preambles per channel (if scaling)
         while self.producer._running:
             # wait for scope to finish capturing all frames
+            # Loop for acquiring
             with self.ctrl_lock:
                 self.ctrl.wait_complete()
             # Start data dump
