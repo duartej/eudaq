@@ -287,7 +287,7 @@ class EudaqEventSender(threading.Thread):
                     except Exception as e:
                         logger.exception(f"Failed to send event for frame-{frame_idx}: {e}")
                     del self.framebuf[frame_idx]
-                    self.queue.task_done()
+            self.queue.task_done()
         logger.debug("EudaqEventSender exiting.")
 
     def _send_frame_event(self, frame_data: Dict[int, bytes]):
