@@ -175,8 +175,9 @@ class FrameReader(threading.Thread):
         """
         logger.info(f"FrameReader starting: reading {self.n_frames} frames x channels {self.channels}")
         # Read preambles per channel (if scaling)
-        while self.producer._running:
-            # wait for scope to finish capturing all frames
+        while self.producer._running and not self._stop.is_set():
+            # wait for scope to finish capturing all frames, 
+            # withoug blocking forever ??? - I think in here there is no issue though 
             # Loop for acquiring
             with self.ctrl_lock:
                 self.ctrl.wait_complete()
@@ -194,11 +195,14 @@ class FrameReader(threading.Thread):
                     # XXX ?? self.queue.put((0, ch, raw_data.tobytes()))
                     # Send the whole channel data (all n-frames)
                     self.queue.put((0, ch, raw_data), block=True)
+            # End burst signal
             self.queue.put(None)
             logger.info("FrameReader finished and placed sentinel in queue.")
-            # Arm again
-            self.ctrl.arm_acquisition()
-            self.ctrl.clear_busy()
+            # Arm again if we continue running
+            if not self._stop.is_set() and self.producer._running:
+                self.ctrl.arm_acquisition()
+            with self.ctrl_lock:
+                self.ctrl.clear_busy()
         logger.info("FrameReader run finished...")
 
     #def run(self):
@@ -259,13 +263,22 @@ class EudaqEventSender(threading.Thread):
         """
         """
         logger.debug("EudaqEventSender started.")
-        while self.producer._running:
-            item = self.queue.get()
+        while self.producer._running and not self._stop.is_set():
+            try:
+                # Avoid indefinite block
+                item = self.queue.get(timeout=0.5)
+            except queue.Empty:
+                # The stop was asking and no more data available
+                if self._stop.is_set() or not self.producer._running:
+                    break
+                continue
+
             if item is None:
                 logger.info("EudaqEventSender got sentinel; finishing.")
                 self._flush_remaining()
                 self.queue.task_done()
                 break
+            
             frame_idx, ch, raw_data_blob = item
             # Convert into frame payloads
             raw_data_list = self.producer.ctrl.split_raw_data(raw_data_blob)
@@ -432,19 +445,40 @@ class MSO6BProducer(pyeudaq.Producer):
         """
         logger.info("Stopping producer.")
         
+        # Stop global signal
         self._running = False
         
+        # Wake up threads blocked in the queue
+        try: 
+            if self.data_q is not None:
+                self.data_q.put_nowait(None)
+        except Exception:
+            pass
+        
+        # Requiring explicit stop 
         if self.reader is not None and self.reader.is_alive():
             self.reader.stop()
-            self.reader.join(timeout=1.0)
         if self.eudaq_sender is not None and self.eudaq_sender.is_alive():
             self.eudaq_sender.stop()
             self.eudaq_sender.join(timeout=1.0)
+
+        # Avoid infinite loops
+        # 5s. of patient
+        deadline = time.time() + 5.0
+        while self.reader is not None and self.reader.is_alive and time.time() < deadline:
+            self.reader.join(timeout=0.2)
+        while self.eudaq_sender is not None and self.eudaq_sender.is_alive and time.time() < deadline:
+            self.eudaq_sender.join(timeout=0.2)
+
+        # Avoid blocking because of the lock
         try:
-            with self.ctrl_lock:
-                self.ctrl.clear_busy()
-                self.ctrl.dev.clear()
-                self.ctrl.clear_status()
+            if self.ctrl_lock.acquire(timeout=0.5):
+                try:
+                    self.ctrl.clear_busy()
+                    self.ctrl.dev.clear()
+                    self.ctrl.clear_status()
+                finally:
+                    self.ctrl_lock.release()
         except Exception:
             pass
 
@@ -457,9 +491,10 @@ class MSO6BProducer(pyeudaq.Producer):
             self.ctrl = None
         self._running = False
 
-    #@exception_handler
-    #def DoStatus(self):
+    @exception_handler
+    def DoStatus(self):
     #    # ?? Frames... important info you can to see in the runcontro
+        self.SetStatusTag('Test-tag','---')
 
     @exception_handler
     def RunLoop(self):
@@ -481,9 +516,22 @@ class MSO6BProducer(pyeudaq.Producer):
 
         # Wait for reader and sender to finish before stopping the run
         logger.info("Waiting for reader thread to finish (this may take time depending on data volume).")
-        self.reader.join()
-        logger.info("Reader finished. Waiting for sender to finish.")
-        self.eudaq_sender.join()
+        # Cooperative waiting (no blocking framework thread)
+        while True:
+            if self.reader is not None and self.reader.is_alive():
+                self.reader.join(timeout=0.2)
+            if self.eudaq_sender is not None and self.eudaq_sender.is_alive():
+                self.eudaq_sender.join(timeout=0.2)
+            
+            # Break if both are already dead
+            if (self.reader is None or not self.reader.is_alive()) and \
+                    (self.eudaq_sender is None or not self.eudaq_sender.is_alive()):
+                break
+            
+            # And if it was requested
+            if not self._running:
+                # Just some time, DoStop has to be doing its job
+                time.sleep(0.5)
         logger.info("Burst processing (read+send) finished.")
 
 @click.command()
