@@ -216,7 +216,7 @@ class MSOController:
 
     @property
     def trigger_level(self):
-        if self.trigger_edge_source == 'AUX':
+        if self.trigger_edge_source == 'AUXILIARY':
             return self.query('TRIGger:AUXLevel?')
         else:
             return float(self.query(f'TRIGger:A:LEVel:{self.trigger_edge_source}?'))
@@ -225,7 +225,7 @@ class MSOController:
     def trigger_level(self, value):
         """ Note if AUX is the trigger_edge_source -> str (RISE, FALL or EITHER)
         """
-        if self.trigger_edge_source == 'AUX':
+        if self.trigger_edge_source == 'AUXILIARY':
             self.write(f'TRIGger:AUXLevel {value}')
         else:
             self.write(f'TRIGger:A:LEVel:{self.trigger_edge_source} {value}')
@@ -255,12 +255,14 @@ class MSOController:
         """
         self.write("TRIGger:A:MODE NORMAL")
         # USe A: main trigger (B trigger is secondary optional, used in advanced modes)
+        if trigger_source == "EXT":
+            trigger_source = "AUX"
         self.trigger_edge_source = trigger_source
         self.write("TRIGger:A:EDGE:COUPling DC")
-        if trigger_source  == "AUX":
+        #if trigger_source  == "AUX":
             # Trigger level to 1.4 TTL or -1.3 ECL, 
             # modify to provide the proper string
-            trigger_level = "TTL" if trigger_level > 0 else "ECL" 
+        #    trigger_level = "TTL" if trigger_level > 0 else "ECL" 
         self.trigger_level = trigger_level
 
         assert trigger_slope in [ "RISE", "FALL", "EITHER"], f"Wrong slope `{trigger_slope}`"
@@ -698,10 +700,19 @@ class MSOController:
             if key == "WFID":
                 wfid_dict = {}
                 for k, key_wfid in enumerate(WFID_FIELDS):
-                    wfid_dict[key_wfid] = txt[i].split(',')[k]
+                    try:
+                        wfid_dict[key_wfid] = txt[i].split(',')[k]
+                    except IndexError:
+                        # WFID is not present, ignore it
+                        pass
                 value = wfid_dict
             else:
-                value = txt[i]
+                try:
+                    value = txt[i]
+                except IndexError:
+                    # Keys not present... not sure if it is nice, but
+                    # ignore it so far
+                    pass
             self._wf_preamble[key] = value
         return self._wf_preamble
 
