@@ -197,7 +197,7 @@ class FrameReader(threading.Thread):
             self.queue.put(None)
             logger.info("FrameReader finished and placed sentinel in queue.")
             # Arm again
-            self.producer.arm_acquisition()
+            self.ctrl.arm_acquisition()
             self.ctrl.clear_busy()
         logger.info("FrameReader run finished...")
 
@@ -259,7 +259,7 @@ class EudaqEventSender(threading.Thread):
         """
         """
         logger.debug("EudaqEventSender started.")
-        while self.producer._running and self._stop:
+        while self.producer._running:
             item = self.queue.get()
             if item is None:
                 logger.info("EudaqEventSender got sentinel; finishing.")
@@ -304,11 +304,11 @@ class EudaqEventSender(threading.Thread):
         ev.SetTriggerN(self.producer.n_trigger)
         if self.producer.n_trigger == 0:
             ev.SetBORE()
-            ev.SetTag('producer_name', str(self.producer._name))
+            ev.SetTag('producer_name', str(self.producer._name)) # self.producer.name should exists
             ev.SetTag('duts_info', self.producer.duts_info)
             ev.SetTag('dt', str(self.producer.wf_preamble[1]["XINCR"]))
             ev.SetTag('t0', str(self.producer.wf_preamble[1]["XZERO"]))
-            ev.SetTag('sampled_points', str(self.producer.record_length))
+            ev.SetTag('sampled_points', str(self.producer.ctrl.record_length))
             for ch in self.producer.channels:
                 ev.SetTag(f'channel{ch}_dv', str(self.producer.wf_preamble[ch]["YMULT"]))
                 ev.SetTag(f'channel{ch}_v0', str(self.producer.wf_preamble[ch]["YZERO"]))
@@ -340,6 +340,7 @@ class MSO6BProducer(pyeudaq.Producer):
     """
     def __init__(self, name, runctrl):
         pyeudaq.Producer.__init__(self, name, runctrl)
+        self._name = name 
         # Acquiring the controller lock
         self.ctrl_lock = threading.Lock()
         self.ctrl = None
@@ -389,7 +390,7 @@ class MSO6BProducer(pyeudaq.Producer):
         logger.setLevel(self.log_level)
 
         # Obtain the size of a block per frame (we have this info after config)
-        ## --> self.frame_size = self.record_length * self.bytes_per_point
+        ## --> self.frame_size = self.ctrl.record_length * self.bytes_per_point
         # controller methods are synchronous; protect them with visa_lock
         with self.ctrl_lock:
             #Always in a known state
