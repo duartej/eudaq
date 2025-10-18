@@ -9,6 +9,7 @@ duarte@ifca.unican.es
 
 import logging
 import sys
+import time
 
 from typing import List, Dict, Optional
 
@@ -556,6 +557,27 @@ class MSOController:
         Wait until the acquisition sequence finishes using the OPC call
 
         """
+        # TRICK to momentanously stop receiving external triggers
+        # immediately when the last frame was received
+        # Change to 5.0 volts which make no sense
+        #self.dev.write("*OPC;TRIGger:AUXLevel 5.0")
+        self.send_busy()
+        time.sleep(0.01)
+        self.clear_busy()
+        _ = self.query('*OPC?')
+        self.send_busy()
+        # Revert back the trigger?
+    
+    def taking_data(self):
+        """
+        Wait until the acquisition sequence finishes using the OPC call
+
+        """
+        # Everytime a trigger is received, we should send a busy signal
+        # to raise down the trigger signal (otherwise is kept up until it receives
+        # all busy signals from all connecteddevices 
+        
+
         # TRICK to momentanously stop receiving external triggers
         # immediately when the last frame was received
         # Change to 5.0 volts which make no sense
