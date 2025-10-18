@@ -457,8 +457,12 @@ class MSO6BProducer(pyeudaq.Producer):
             self.ctrl = None
         self._running = False
 
+    #@exception_handler
+    #def DoStatus(self):
+    #    # ?? Frames... important info you can to see in the runcontro
+
     @exception_handler
-    def DoLoop(self):
+    def RunLoop(self):
         """
         """
         self.n_trigger = 0
