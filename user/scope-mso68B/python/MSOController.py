@@ -1,12 +1,6 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Controller for Tektronix 4/56/ Series MSO via SCPI (VISA)
 
-Requirements:
-    pip install pyvisa pyvisa-py
-
-Programmer Manual references:
 https://www.tek.com/en/sitewide-content/manuals/4/5/6/4-5-6-series-mso-programmer-manual
 
 2025-10-04, Jordi Duarte-Campderros (IFCA) 
@@ -15,6 +9,7 @@ duarte@ifca.unican.es
 
 import logging
 import sys
+import time
 
 from typing import List, Dict, Optional
 
@@ -49,9 +44,9 @@ PREAMBLE_ORDERED_LIST = ["BYT_NR", # Byte per point, i.e. the binary field data 
                          "XUNIT",  # The unit of the x-axis (s or Hz)
                          "XINCR",  # The time, in xunit, between data points
                          "XZERO",  # The time between the trigger sample (PT_IFF) and the occurrence of actual trigger
-                         "PT_OFF", # The data point immediately following the trigger point relateive to DATA:STARt
+                         "PT_OFF", # The data point immediately following the trigger point relative to DATA:STARt
                          "YUNIT",  # The vertical units
-                         "YMULT",  # The multiplying factor to convert the data point values from digitizin levels to yunit
+                         "YMULT",  # The multiplying factor to convert the data point values from digitizing levels to yunit
                          "YOFF",   # The vertical position in digitizing levels (25 digitizing levels per vertical position)
                          "YZERO",  # The vertical offset
                          "DOMAIN", # The domain (TIME or FREQency)
@@ -59,7 +54,7 @@ PREAMBLE_ORDERED_LIST = ["BYT_NR", # Byte per point, i.e. the binary field data 
                          "CENTERFREQUENCY", # Frequency domain ... 
                          "SPAN",   # Frequency domain ...
                          "FFTLENGTH",# Frequency domain ...
-                         "RESAMPLE", # 1 - Every sample is returned (2 - everty other sample, ...)
+                         "RESAMPLE", # 1 - Every sample is returned (2 - every other sample, ...)
                          "MODE",    # ...
                          ]
 WFID_FIELDS = [ "SOURCE", "COUPLING", "VERTSCALE", "HORIZSCALE","RECORDLENGTH", "ACQUISITIONMODE"]
@@ -74,23 +69,22 @@ def _header_list_to_dict(result_str):
     pre_list = result_str.split(';')
     for key_val in pre_list:
         # XXX  -- What happens with :WATHERVER:MORE ? -> should it be
-        #         whateever_more? o maybe [whatever][more]
+        #         whatever_more? o maybe [whatever][more]
         key,val = key_val.split()
         result[key.lower()] = val
     return result
 
 class MSOController:
     def __init__(self, resource_string, timeout_ms=10000, afg_resource=None):
-        """Class to remotely control a Tektronix Serie 4/5/6 MSO, and 
+        """Class to remotely control a Tektronix Serie 4/5/6 MSO, and
         a simple Function generator (AFG) to act as busy signal when
         the scope is reading out.
 
         Parameters
         ----------
         resource_string: str
-            The VISA string for the scope.
-            Example "USB0::0x0699::0x0522::123456::INSTR"
-                         o "TCPIP::192.168.5.12::INSTR"
+            The VISA string for the scope. Example "USB0::0x0699::0x0522::123456::INSTR"
+            or "TCPIP::192.168.5.12::INSTR"
         timeout_ms: int 
             Read timeout in ms (adjust depending on record length)
         afg_resource: str
@@ -118,15 +112,24 @@ class MSOController:
             # Force explicitly the record length and sample rate:
             # t_frame = Record_length/sample_rate
             self.write('HORizontal:MODE MANUAL')
-            # Fix maximum sample rate
-            self.write('HORizontal:MAIN:SAMPLERate 25e9')
+            # Fix maximum sample rate --> Automatic ???
+            # --> Looks like this is not working --> self.write('HORizontal:MAIN:SAMPLERate 50e9')
             # Any other? XXX
+            # The time window per default: 20 ns (2 ns/div)
+            self.target_window = 20e-9
 
         if afg_resource is not None:
             # Use the afg to generate a busy signal while reading
             # and processing data
             self.afg = self.rm.open_resource(afg_resource)
+            self.afg.read_termination = '\r\n'
+            self.afg.write_termination = '\n'
             self.afg._idn = self.afg.query("*IDN?")
+            # Setup the AFG to send a DC of 1.1 Vpp for CH1
+            self.afg.write('CHN1')
+            self.afg.write('ARBDCOFFS 1.1')
+            self.afg.write('ARBLOAD DC')
+            self.afg.write('OUTPUT OFF')
             # All related functions properly identified
             self.send_busy = self._send_busy
             self.clear_busy= self._clear_busy
@@ -161,8 +164,41 @@ class MSOController:
         # Set a pre-defined configuration
         # And re-activate all channels
         #self.write(f':SELECT:CH1 ON;:SELECT:CH2 ON;:SELECT:CH3 ON;:SELECT:CH4 ON')
-    
+ 
+    def display_waveform(self, want_to_display=True):
+        if want_to_display:
+            display = 'ON'
+        else:
+            display = 'OFF'
+        self.write(f"DISPLAY:WAVEFORM {display}")
+
     # Some useful accessors 
+
+    @property
+    def sampling_rate(self):
+        return float(self.query('HORizontal:SAMPLERate?'))
+    
+    @property
+    def target_window(self):
+        """The time window acquired
+        """
+        return self._target_window
+
+    @target_window.setter
+    def target_window(self, target_window):
+        """It is linked with the record_length)
+        """
+        # Also place time division
+        self.write(f'HORizontal:SCAle {target_window/10}')
+        # Be sure it is possible (not all are available)
+        self._target_window = 10*float(self.query('HORizontal:SCAle?'))
+    
+    @property
+    def record_length(self):
+        return int(self._target_window * self.sampling_rate)
+    
+    
+    
     # TRIGGER group
     @property
     def trigger_edge_source(self):
@@ -174,15 +210,14 @@ class MSOController:
 
     @property
     def trigger_state(self):
-        self._trigger_state = self.query('TRIGger:STATE?')
-        return self._trigger_state
+        return self.query('TRIGger:STATE?')
 
     def is_trigger_ready(self):
-        return self._trigger_state == 'READY'
+        return self.trigger_state == 'READY'
 
     @property
     def trigger_level(self):
-        if self.trigger_edge_source == 'AUX':
+        if self.trigger_edge_source == 'AUXILIARY':
             return self.query('TRIGger:AUXLevel?')
         else:
             return float(self.query(f'TRIGger:A:LEVel:{self.trigger_edge_source}?'))
@@ -191,7 +226,7 @@ class MSOController:
     def trigger_level(self, value):
         """ Note if AUX is the trigger_edge_source -> str (RISE, FALL or EITHER)
         """
-        if self.trigger_edge_source == 'AUX':
+        if self.trigger_edge_source == 'AUXILIARY':
             self.write(f'TRIGger:AUXLevel {value}')
         else:
             self.write(f'TRIGger:A:LEVel:{self.trigger_edge_source} {value}')
@@ -208,7 +243,7 @@ class MSOController:
     # Trigger settings
     def set_edge_trigger(self, 
                          trigger_source: str = 'CH1',
-                         trigger_level: float = '1e-2', 
+                         trigger_level: float = 1e-2, 
                          trigger_slope: str = 'RISE'):
         """Set the trigger to edge in mode Normal
 
@@ -221,12 +256,14 @@ class MSOController:
         """
         self.write("TRIGger:A:MODE NORMAL")
         # USe A: main trigger (B trigger is secondary optional, used in advanced modes)
+        if trigger_source == "EXT":
+            trigger_source = "AUX"
         self.trigger_edge_source = trigger_source
         self.write("TRIGger:A:EDGE:COUPling DC")
-        if trigger_source  == "AUX":
+        #if trigger_source  == "AUX":
             # Trigger level to 1.4 TTL or -1.3 ECL, 
             # modify to provide the proper string
-            trigger_level = "TTL" if trigger_level > 0 else "ECL"            
+        #    trigger_level = "TTL" if trigger_level > 0 else "ECL" 
         self.trigger_level = trigger_level
 
         assert trigger_slope in [ "RISE", "FALL", "EITHER"], f"Wrong slope `{trigger_slope}`"
@@ -256,7 +293,7 @@ class MSOController:
     def max_available_frames(self, safety_factor = 0.96):
         """Calculates the maximum number of frames taking into account:
             - the scope is able to get 62.5M points
-            - assume the total number of points must be splitted between channels
+            - assume the total number of points must be split between channels
 
         Parameters
         ----------
@@ -325,7 +362,7 @@ class MSOController:
 
     def split_raw_data(self, blob: bytes): 
         """Split a IEEE-488.2 block (#<nd><len><payload>\n) from raw
-        data of teh oscilloscope and parses them to return only the payload in bytes.
+        data of the oscilloscope and parses them to return only the payload in bytes.
 
         Parameters
         ----------
@@ -342,7 +379,6 @@ class MSOController:
 
         while i < L:
             if blob[i:i+1] != b'#':
-                print(blob[i:i+10])
                 raise ValueError(f'No header `#` in offset {i}')
             i += 1
 
@@ -397,105 +433,102 @@ class MSOController:
     def preconfig(self, 
                   active_channels = [ 1,2,3,4],
                   scale = [ 100e-3, 100e-3, 100e-3, 100e-3 ], 
-                  t_div = 10e-9,
-                  t_delay = 20,
-                  trigger_source = "CH1",
-                  trigger_level  = 100e-3,
-                  record_length: int =2500, 
+                  offset = None, 
+                  target_window = None, 
+                  trigger_position = 30, 
                   bpp: int = 2, 
                   ):
         """
+        Parameters
+        ----------
+        active_channels: list(int)
+        scale: list(float)
+        offset: list(float
+        target_window: float
+            The horizontal window we want to record [s]a
+        trigger_position: 
+            The percentage where the
+        bpp:
         """
+        # Update target window, if None use current value
+        if target_window is not None:
+            self.target_window = target_window
+
+        if offset is None:
+            offset = [ -_x*4 for _x in scale ]
+
         # Cross-checks
-        assert len(active_channels) == len(scale), "Scale numberss must be equal to channels"
-        logger.info(f"Configure: Active channels={active_channels}, Vertical scale={scale} V, Time division={t_div} s")
-        logger.info(f"Configure: Record Length={record_length}, bytes_per_point={bpp}")
+        assert len(active_channels) == len(scale), "Scale numbers must be equal to channels"
+        assert len(scale) == len(offset), "Scale and offset number of elements must be exactly the same"
         # Enable the channels for DATA subsystem and other configuration
         for i,ch in enumerate(active_channels):
             self.write(f'SELect:CH{ch} ON')
             # Position, scale and coupling
             self.write(f'CH{ch}:SCAle {scale[i]}')
+            self.write(f'CH{ch}:OFFSET {offset[i]}')
             self.write(f'CH{ch}:POSition 0')
             self.write(f'CH{ch}:COUPling DC')
+            self.write(f'CH{ch}:TERMINATION 50')
             self.write(f'CH{ch}:BANdwidth FULL')
-
-        # Select the horizontal time base (time per division),
-        # Remember the scope has 10 divisions: total scale: 10 x t_div
-        self.write(f'HORizontal:SCAle {t_div}')
-        # The trigger delay
-        self.write(f'HORizontal:POSition {t_delay}')
+        
+        # Define the acquisition window (assuming trigger=t0?)
+        # The window is defined by (number of points)/sampling_Frequency
+        # -->  Note, once defined target_window and sampling rate, record_length 
+        #      is linked
+        self.write(f"HORizontal:MODE:RECOrdlength {self.record_length}")
+        self.write(f"HORizontal:POSition {trigger_position}")
 
         self.write("ACQuire:STATE OFF")
         self.write("ACQuire:MODE SAMPLE")
-        # Number of points
-        self.record_length = int(record_length)
-        self.write(f"HORizontal:MODE:RECOrdlength {self.record_length}")
 
         # Data -related
         # The right-hand, signed binary (2 bytes MSB
         self.write("DATa:ENCdg RIBinary")
         # The number of bytes per point
         self.write(f"WFMOutpre:BYT_Nr {bpp}")
+        # Data to be extracted
+        self.write(f"DATA:START 1")
+        self.write(f"DATA:STOP {self.record_length}")
 
         # disabling fast frame and FastAcq (just in case)
         self.write("HORizontal:FASTframe:STATE OFF")
         self.write("ACQuire:FASTAcq:STATE OFF")
         # Captures exactly 1 shot? defined with countp?
         self.set_acquisition_sequence()
-        # The trigger configuration 
-        self.set_edge_trigger(trigger_source=trigger_source, trigger_level=trigger_level, trigger_slope="RISE")
+        
+        logger.info(f"Configure: Active channels={active_channels}, Vertical scale={scale} V, Time division={self.target_window/10} s")
+        logger.info(f"Configure: Acquire time window={self.target_window} [s], bytes_per_point={bpp}")
 
     # ------------------------
     # Configuration FastFrame
     # ------------------------
-    def configure_fastframe_acq(self, 
-                                record_length: int =2500, 
-                                bpp: int = 2, 
-                                n_frames: int = 1000, 
-                                trigger_source: str = "EXT"):
+    def configure_fastframe_acq(self, n_frames: int = 1000, continous_acq = False):
         """Configure the oscilloscope to acquire N-frames in fastFrame mode
 
         Parameters
         ----------
-        record_lenght: int
-            The number of points of the waveforms
-        bpp: int
-            Bytes per points 
         n_frames: int
             The number of frames to be obtained
-        trigger_source: str
-            The trigger source [CHannel or EXT]
         """
-        logger.info(f"Configure FastFrame: RL={record_length}, bytes_per_point={bpp}, Frames={n_frames}, Trigger source: {trigger_source}")
+        logger.info(f"Configure FastFrame: Frames={n_frames}")
         self.write("ACQuire:STATE OFF")
         self.write("ACQuire:MODE SAMPLE")
-        # Number of points
-        self.record_length = int(record_length)
-        self.write(f"HORizontal:MODE:RECOrdlength {self.record_length}")
-        # Be sure the same data length is provided with curve?
-        self.write(f"DATA:START 1")
-        self.write(f"DATA:STOP {self.record_length}")
-        # The right-hand, signed binary (2 bytes MSB
-        self.write("DATa:ENCdg RIBinary")
         # Enabling fast frame
         self.write("HORizontal:FASTframe:STATE ON")
         # Number of frames to be acquired
         self.n_frames = n_frames
         self.write(f"HORizontal:FASTframe:COUNt {self.n_frames}")
-        # The number of bytes per point
-        self.write(f"WFMOutpre:BYT_Nr {bpp}")
         # The oscilloscope will start to acquire as soon as possible 
         # (for instance, after a CURVE?, just when finish) --> BUT
-        #self.set_acquisition_continous()
-        self.set_acquisition_sequence()
-        # display streaming off to increase speed
-        self.write("DISPLAY:WAVEFORM OFF")
-        # The trigger configuration  (wait for a regular trigger event)
-        # Note per default trigger_level= 1e-2 (TTL if AUX source) and slope=RISE
-        self.set_edge_trigger(trigger_source=trigger_source)
+        if continous_acq:
+            logger.info('Set acquisition continous (RUNSTOP)')
+            self.set_acquisition_continous()
+        else:
+            logger.info('Set acquisition SEQUENCE (RUNSTOP)')
+            self.set_acquisition_sequence()
+        # display streaming off to increase speed ?
+        #self.display_waveform(False)
         # The DATA to be sent??  XXX
-        # self.dev.write(f"DATa:START {int(record_start)}")
-        # self.dev.write(f"DATa:STOP {int(record_stop)}")
         logger.debug("FastFrame configuration sent and ready...")
 
     # --------------------
@@ -503,7 +536,7 @@ class MSOController:
     # --------------------
     def set_acquisition_sequence(self):
         """After take the number of Counted waveform stop acquisition
-        (single sequence adquisition)
+        (single sequence acquisition)
         """
         self.write("ACQuire:STOPAfter SEQUENCE")
 
@@ -524,6 +557,27 @@ class MSOController:
         Wait until the acquisition sequence finishes using the OPC call
 
         """
+        # TRICK to momentanously stop receiving external triggers
+        # immediately when the last frame was received
+        # Change to 5.0 volts which make no sense
+        #self.dev.write("*OPC;TRIGger:AUXLevel 5.0")
+        self.send_busy()
+        time.sleep(0.01)
+        self.clear_busy()
+        _ = self.query('*OPC?')
+        self.send_busy()
+        # Revert back the trigger?
+    
+    def taking_data(self):
+        """
+        Wait until the acquisition sequence finishes using the OPC call
+
+        """
+        # Everytime a trigger is received, we should send a busy signal
+        # to raise down the trigger signal (otherwise is kept up until it receives
+        # all busy signals from all connecteddevices 
+        
+
         # TRICK to momentanously stop receiving external triggers
         # immediately when the last frame was received
         # Change to 5.0 volts which make no sense
@@ -640,7 +694,7 @@ class MSOController:
     #    self.write(f"DATa:FRAMESTART {frame}")
     #    self.write(f"DATa:FRAMESTOP {frame}")
     #    
-    #    # XXX -- Nota que directamente es posbile obtener numpySS s
+    #    # XXX -- Nota que directamente es posible obtener numpys
     #    # https://pyvisa.readthedocs.io/en/1.8/rvalues.html
     #    pre = self.wf_preamble
     #    bytes_per_point = int(pre.get("BYT_NR",1))
@@ -649,7 +703,7 @@ class MSOController:
     #    datatype = 'H' if bytes_per_point == 2 else 'B'
     #    dtype = np.int16 if bytes_per_point == 2 else np.int8
     #    try:
-    #        # XXX--- is_bin_endian depening BYT_OR and BN_FMT
+    #        # XXX--- is_bin_endian depending BYT_OR and BN_FMT
     #        data = self.dev.query_binary_values("CURVe?", datatype=datatype, container=list, header_fmt='ieee')
     #        return np.asarray(data, dtype=dtype)
     #    except Exception as e:
@@ -664,14 +718,23 @@ class MSOController:
             self._wf_preamble = {}
         txt = self.dev.query("WFMOutpre?").split(';')
         for i,key in enumerate(PREAMBLE_ORDERED_LIST):
-            # special key on 6, if exist XXX -- FIX ME existance
+            # special key on 6, if exist XXX -- FIX ME existence
             if key == "WFID":
                 wfid_dict = {}
                 for k, key_wfid in enumerate(WFID_FIELDS):
-                    wfid_dict[key_wfid] = txt[i].split(',')[k]
+                    try:
+                        wfid_dict[key_wfid] = txt[i].split(',')[k]
+                    except IndexError:
+                        # WFID is not present, ignore it
+                        pass
                 value = wfid_dict
             else:
-                value = txt[i]
+                try:
+                    value = txt[i]
+                except IndexError:
+                    # Keys not present... not sure if it is nice, but
+                    # ignore it so far
+                    pass
             self._wf_preamble[key] = value
         return self._wf_preamble
 
