@@ -4,6 +4,7 @@
 #include "eudaq/RawEvent.hh"
 #include "eudaq/Logger.hh"
 
+#include <iterator>
 #include <vector>
 #include <map>
 #include <array>
@@ -14,23 +15,21 @@
 #include <cmath>
 #include <cstring>
 
-// PROV -- dEBUGGING XXX
-#include <ios>
-
 // Digitizer: { channel : [ (row, col), (row, col), ... ], 
 // Each channel can be bounded to several diodes/pixels
 using PixelMap = std::map<int, std::vector<std::array<int,2>> >;
 
-class CAENDT5748RawEvent2StdEventConverter: public eudaq::StdEventConverter {
+class CAENDT5742RawEvent2StdEventConverter: public eudaq::StdEventConverter {
     public:
         bool Converting(eudaq::EventSPC d1, eudaq::StdEventSP d2, eudaq::ConfigSPC conf) const override;
-        static const uint32_t m_id_factory = eudaq::cstr2hash("CAENDT5748");
+        static const uint32_t m_id_factory = eudaq::cstr2hash("CAENDT5742");
 
     private:
         void Initialize(eudaq::EventSPC bore, eudaq::ConfigurationSPC conf) const;
         PixelMap GetDUTPixelMap(const std::string & dut_tag) const; 
         // Helper functions
         void waveforms_reassemble(uint32_t w0, uint32_t w1, uint32_t w2, std::vector<std::vector<float> > & waveforms) const;
+        void waveforms_reassemble(uint32_t w0, uint32_t w1, uint32_t w2, const size_t n_sample, std::vector<float> & tr0_wf) const;
         int PolarityWF(const std::vector<float> & wf) const;
         float AmplitudeWF(const std::vector<float> & wf) const;
 
@@ -57,25 +56,25 @@ class CAENDT5748RawEvent2StdEventConverter: public eudaq::StdEventConverter {
 };
 
 namespace {
-    auto dummy0 = eudaq::Factory<eudaq::StdEventConverter>::Register<CAENDT5748RawEvent2StdEventConverter>(CAENDT5748RawEvent2StdEventConverter::m_id_factory);
+    auto dummy0 = eudaq::Factory<eudaq::StdEventConverter>::Register<CAENDT5742RawEvent2StdEventConverter>(CAENDT5742RawEvent2StdEventConverter::m_id_factory);
 }
 
 // Static data members to avoid loosing info (after initialization of data members)
 // [due to the re-creation of the instances each event?]
-std::map<int,std::string> CAENDT5748RawEvent2StdEventConverter::_name;
-size_t CAENDT5748RawEvent2StdEventConverter::_n_digitizers = 0;
-size_t CAENDT5748RawEvent2StdEventConverter::_n_samples_per_waveform;
-size_t CAENDT5748RawEvent2StdEventConverter::_sampling_frequency_MHz;
-std::map<int, size_t> CAENDT5748RawEvent2StdEventConverter::_n_duts;
-std::map<int, float> CAENDT5748RawEvent2StdEventConverter::_t0;
-std::map<int, float> CAENDT5748RawEvent2StdEventConverter::_dt;
-std::map<int, std::vector<int> > CAENDT5748RawEvent2StdEventConverter::_dut_channel_list;
-std::map<int, std::map<int, PixelMap> > CAENDT5748RawEvent2StdEventConverter::_dut_channel_arrangement;
-std::map<int, std::map<int, std::array<int,2>> > CAENDT5748RawEvent2StdEventConverter::_nrows_ncolumns;
-std::map<int, std::map<int,int> > CAENDT5748RawEvent2StdEventConverter::_npixels;
-std::map<int, std::map<std::string,int> > CAENDT5748RawEvent2StdEventConverter::_dut_names_id;
+std::map<int,std::string> CAENDT5742RawEvent2StdEventConverter::_name;
+size_t CAENDT5742RawEvent2StdEventConverter::_n_digitizers = 0;
+size_t CAENDT5742RawEvent2StdEventConverter::_n_samples_per_waveform;
+size_t CAENDT5742RawEvent2StdEventConverter::_sampling_frequency_MHz;
+std::map<int, size_t> CAENDT5742RawEvent2StdEventConverter::_n_duts;
+std::map<int, float> CAENDT5742RawEvent2StdEventConverter::_t0;
+std::map<int, float> CAENDT5742RawEvent2StdEventConverter::_dt;
+std::map<int, std::vector<int> > CAENDT5742RawEvent2StdEventConverter::_dut_channel_list;
+std::map<int, std::map<int, PixelMap> > CAENDT5742RawEvent2StdEventConverter::_dut_channel_arrangement;
+std::map<int, std::map<int, std::array<int,2>> > CAENDT5742RawEvent2StdEventConverter::_nrows_ncolumns;
+std::map<int, std::map<int,int> > CAENDT5742RawEvent2StdEventConverter::_npixels;
+std::map<int, std::map<std::string,int> > CAENDT5742RawEvent2StdEventConverter::_dut_names_id;
 
-void CAENDT5748RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, eudaq::ConfigurationSPC conf) const {
+void CAENDT5742RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, eudaq::ConfigurationSPC conf) const {
     
     const int device_id = bore->GetDeviceN();
     
@@ -177,8 +176,8 @@ void CAENDT5748RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, euda
 }
 
 
-// --- Función auxiliar para decodificar un bloque de 3 palabras ---
-void CAENDT5748RawEvent2StdEventConverter::waveforms_reassemble(uint32_t w0, uint32_t w1, uint32_t w2, std::vector<std::vector<float> > & waveforms) const {
+// --- Auxiliary function to decode a 3 words block being each channel sample 
+void CAENDT5742RawEvent2StdEventConverter::waveforms_reassemble(uint32_t w0, uint32_t w1, uint32_t w2, std::vector<std::vector<float> > & waveforms) const {
     // See CAEN User Manual data format. 
     // Each three words contains the one sample (RDS4 cell) 
     // for all enabled (?) channels. The info is store in 12bits
@@ -192,9 +191,23 @@ void CAENDT5748RawEvent2StdEventConverter::waveforms_reassemble(uint32_t w0, uin
     waveforms[7].push_back( static_cast<float>( (w2 >> 20) & 0xFFF ) );
 }
 
+// --- Auxiliary function to decode a 3 words block of the TR0 digizited
+void CAENDT5742RawEvent2StdEventConverter::waveforms_reassemble(uint32_t w0, uint32_t w1, uint32_t w2, const size_t n_sample, std::vector<float> & tr0_wf) const {
+    // See CAEN User Manual data format. 
+    // This is the special case for the TRO digitization
+    tr0_wf[n_sample*8] = static_cast<float>( (w0 >>  0) & 0xFFF );
+    tr0_wf[n_sample*8 + 1] = static_cast<float>( (w0 >> 12) & 0xFFF );
+    tr0_wf[n_sample*8 + 2] = static_cast<float>( ((w0 >> 24) & 0xFF) | ((w1 & 0xF) << 8) );
+    tr0_wf[n_sample*8 + 3] = static_cast<float>( (w1 >>  4) & 0xFFF );
+    tr0_wf[n_sample*8 + 4] = static_cast<float>( (w1 >> 16) & 0xFFF );
+    tr0_wf[n_sample*8 + 5] = static_cast<float>( ((w1 >> 28) & 0xF) | ((w2 & 0xFF) << 4) );
+    tr0_wf[n_sample*8 + 6] = static_cast<float>( (w2 >>  8) & 0xFFF );
+    tr0_wf[n_sample*8 + 7] = static_cast<float>( (w2 >> 20) & 0xFFF );
+}
+
 
 // FIXME -- Calculate it once: use a memoizer
-int CAENDT5748RawEvent2StdEventConverter::PolarityWF(const std::vector<float> & wf) const {
+int CAENDT5742RawEvent2StdEventConverter::PolarityWF(const std::vector<float> & wf) const {
     // Extract polarity -- XXX-- Just do it once ? -- then, TODO
     auto itminmax = std::minmax_element(wf.begin(), wf.end());
     const float min = *itminmax.first;
@@ -206,7 +219,7 @@ int CAENDT5748RawEvent2StdEventConverter::PolarityWF(const std::vector<float> & 
 }
 
 
-float CAENDT5748RawEvent2StdEventConverter::AmplitudeWF(const std::vector<float>& waveform) const {
+float CAENDT5742RawEvent2StdEventConverter::AmplitudeWF(const std::vector<float>& waveform) const {
     // Rough estimation of the baseline using the median
     // But first use the right polarity to be sure we sort properly
     const int polarity = PolarityWF(waveform); 
@@ -243,8 +256,6 @@ float CAENDT5748RawEvent2StdEventConverter::AmplitudeWF(const std::vector<float>
     const double variance = std::accumulate(wf_abs.begin(), wf_abs.end(), 0.0, sum_term);
     const double stddev = std::sqrt(variance/wfsize);
     
-/*std::cout << " Baseline: " << baseline << " -- " << wf_amplitude_max 
-    << " 3sigma?" << 3.0*stddev << std::endl;*/
     // Assume 3 sigma to be signal
     if( wf_amplitude_max > 3.0*(baseline + stddev) ) {
         return wf_amplitude_max*polarity;
@@ -255,7 +266,7 @@ float CAENDT5748RawEvent2StdEventConverter::AmplitudeWF(const std::vector<float>
 
 
 
-bool CAENDT5748RawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdEventSP d2, eudaq::ConfigSPC conf) const {
+bool CAENDT5742RawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdEventSP d2, eudaq::ConfigSPC conf) const {
 
     auto event = std::dynamic_pointer_cast<const eudaq::RawDataEvent>(d1);
     if (event == nullptr) {
@@ -270,17 +281,15 @@ bool CAENDT5748RawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq:
     }
 
     const int dev_id = event->GetDeviceN();
-
-    // Expecting one block per channel
-    if(event->NumBlocks() != _dut_channel_list[dev_id].size()) {
-        EUDAQ_ERROR(" Expected one block per channel (n-channel: "+ 
-                std::to_string(_dut_channel_list[dev_id].size()) + "). Blocks: "+
-                std::to_string(event->NumBlocks()) );
+    
+    // Expecting only one block
+    if(event->NumBlocks() > 1) {
+        EUDAQ_ERROR(" Expected one block, got "+ std::to_string(event->NumBlocks()) );
         return false;
     }
 
-    d2->SetDetectorType("CAEN5748");
-    
+    d2->SetDetectorType("CAENDT5742");
+
     if(!d2->IsFlagPacket()) {
         d2->SetFlag(d1->GetFlag());
         d2->SetRunN(d1->GetRunN());
@@ -295,89 +304,171 @@ bool CAENDT5748RawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq:
     // Extract the event and convert it back to 32b words
     // See data format in CAEN User Manual 9.7.2 
     std::vector<uint8_t> raw = event->GetBlock(0);
+    if( raw.size() < 16 ) {
+        EUDAQ_ERROR("Raw CAEN block too small: " + std::to_string(raw.size()) + " bytes");
+        return false;
+    }
+    if( raw.size() % 4 != 0 ) {
+        EUDAQ_ERROR("Raw CAEN block size is not 32-bit aligned: " + std::to_string(raw.size()) + " bytes");
+        return false;
+    }
+    // The raw event in 32-bit words
     std::vector<uint32_t> raw_event(raw.size() / 4);
     std::memcpy(raw_event.data(), raw.data(), raw.size());
     // Get the size of the event --> To cross-check ?? 
     const size_t total_words = static_cast<size_t>(raw_event[0] & 0x0FFFFFFF);
     if( total_words != raw_event.size() ) {
-        // XXX FIXME -- Some error message and break?
+        EUDAQ_ERROR("Raw event size mismatch: header says " + std::to_string(total_words) +
+                " words, but block contains " + std::to_string(raw_event.size()) + " words.");
+        // -- XXX or return true for skipping this ? 
+        return false;
     }
-
+    
     const uint32_t group_present  = raw_event[1] & 0x3; 
     const uint32_t event_counter  = raw_event[2] & 0xFFFFFF;
     const uint32_t event_time_tag = raw_event[3];
 
-    // Loop over all channels
+    // Loop over all groups/channels [It could be 2 groups, each with 8 channels)
     // Processed event header (4 words)
     size_t offset = 4;
-    size_t group_id  = 0;
     std::map<size_t, std::vector<std::vector<float> >> waveforms_group;
-    while( offset < raw_event.size() ) {
-        // Checking if the current group is present 
-        if( ! (group_present >> group_id) & 0x1 ) {
-            // check next group, this is not here
-            ++group_id;
+
+    for(size_t group_id = 0; group_id < 2; ++group_id) {
+        // Check whether the group is present in the event
+        if( ((group_present >> group_id) & 0x1) == 0 ) {
             continue;
         }
+        if( offset >= raw_event.size() ) {
+            EUDAQ_ERROR("[GROUP- " + std::to_string(group_id) + "] Malformed CAEN raw event: unexpected end of data while reading group header");
+            return false;
+        }
 
-        // Group data extraction (next word)
-        uint32_t group_header = raw_event[offset++];
-        // Info from the header, the number of words to be read
+        // Group header (next word)
+        const uint32_t group_header = raw_event[offset++];
+
+        // Number of 32-bit words to read for this group (excluding the 4-word global header)
         const uint32_t ch0_7_words = group_header & 0xFFF;
-
-std::cout << "Group-" << (group_id - 1) 
-    << " Group header: 0x" << std::hex << group_header << std::dec
-    << " Words to be read to extract all samples (excluding trigger): " << ch0_7_words
-    << std::endl;
-
-        // Eech waveform is stored in three words 
+        // Is TR0 present? [bit-12]
+        const size_t is_tr0_present = (group_header >> 12) &  0x1;
+        // 3 words encode 8 samples (1 per channel)
         const size_t sample_steps = ch0_7_words / 3;
+        if( (ch0_7_words % 3) != 0 ) {
+            EUDAQ_ERROR("[GROUP- " + std::to_string(group_id) + "] Size CH0...7=" + std::to_string(ch0_7_words) + " not divisible by 3");
+            return false;
+        }
+        const size_t N = _n_samples_per_waveform;
+        const size_t expected_ch0_7_words = 3 * N;
+        // Cross-check against configured record length
+        if( ch0_7_words != expected_ch0_7_words ) {
+            EUDAQ_WARN("[GROUP- " + std::to_string(group_id) + ": Sixe CH0..7=" + 
+                    std::to_string(ch0_7_words) + " but expected 3*N=" + 
+                    std::to_string(expected_ch0_7_words) + " (N=" + std::to_string(N) + ")");
+        }
 
-        // The waveforms for each of the channels (from a total of 8)
-        //  each element corresponds to the channel number 
-        std::vector<std::vector<float> > waveforms(8);
+        // Pre-allocate waveforms: 8 channels per group (Channels 0 to 7 of this group) + TR0
+        std::vector<std::vector<float>> waveforms(9);
+        waveforms.reserve(9);
+
+        // Safety check: ensure we don't read past the buffer
+        const size_t words_needed = sample_steps * 3;
+        if( offset + words_needed > raw_event.size() ) {
+            EUDAQ_ERROR("[GROUP- " + std::to_string(group_id) + "] Malformed CAEN raw event: not enough words for group " + std::to_string(group_id) +
+                    " (need: " + std::to_string(words_needed) + ", have " +
+                    std::to_string(raw_event.size() - offset) + ").");
+            return false;
+        }
+
         for(size_t i = 0; i < sample_steps; ++i) {
-            // Extract the three consecutive words to
-            // reassemble the total waveform
-            uint32_t w0 = raw_event[offset++];
-            uint32_t w1 = raw_event[offset++];
-            uint32_t w2 = raw_event[offset++];
-
+            const uint32_t w0 = raw_event[offset++];
+            const uint32_t w1 = raw_event[offset++];
+            const uint32_t w2 = raw_event[offset++];
             waveforms_reassemble(w0, w1, w2, waveforms);
         }
-        // All channels of the group are stored
-        waveforms_group[group_id] = waveforms;
+
+        // Optional TR0 if present -- XXX Maybe not optional at all...
+        size_t size_tr0_words = 0;
+        if( is_tr0_present ) {
+            // The TRO is in the last words of the group. Each sample is 12bits and
+            // there are _n_samples_per_waveform samples ()
+            size_tr0_words = ch0_7_words / 8;
+            if( (size_tr0_words % 3) != 0 ) {
+                EUDAQ_ERROR("[GROUP- " + std::to_string(group_id) + "] Size TR0 =" + std::to_string(ch0_7_words) + " not divisible by 3");
+                return false;
+            }
+            const size_t sample_steps_tr0 = size_tr0_words / 3;
+            // Safety check: ensure we don't read past the buffer
+            if( offset + size_tr0_words > raw_event.size() ) {
+                EUDAQ_ERROR("[GROUP- " + std::to_string(group_id) + "] Malformed CAEN raw event: not enough words for TR0 of group " + std::to_string(group_id) +
+                        " (need: " + std::to_string(size_tr0_words) + ", have " +
+                        std::to_string(raw_event.size() - offset) + ").");
+                return false;
+            }
+            // Samples are consecutives now (but as 12-bits per sample, we need to 
+            // unpack 3-words to obtain 8 complete samples: 32x3/12 = 8, note 
+            // some samples are split between two words, as the regular channel case)
+            waveforms[8].resize(_n_samples_per_waveform);
+
+            for( size_t i = 0; i < sample_steps_tr0; ++i) {
+                const uint32_t w0 = raw_event[offset++];
+                const uint32_t w1 = raw_event[offset++];
+                const uint32_t w2 = raw_event[offset++];
+                waveforms_reassemble(w0, w1, w2, i, waveforms[8]) ;
+            }
+        }
+
+        waveforms_group[group_id] = std::move(waveforms);
+
+        if( offset > raw_event.size() ) {
+            EUDAQ_ERROR("[GROUP- " + std::to_string(group_id) + "] Missing Group Trigger Time Tag word");
+            return false;
+        }
+        // Group Trigger Time Tag (already have it? XXX)
+        const uint32_t group_ttt_word = raw_event[offset++];
+        // The 30 bit value (in 8.5 ns steps)
+        const uint32_t group_ttt_value = group_ttt_word & 0x3FFFFFFF; 
     }
     // All channels are extracted (from all enabled groups)
-    // --> XXX -- TRIGGER TR0 MISSING TO BE DONE XXX ---- 
     
+    // XXX needed
+    if( offset != total_words ) {
+        EUDAQ_ERROR("Parsing ended at offset=" + std::to_string(offset) +
+                " words, but TOTAL_EVENT_SIZE=" + std::to_string(total_words));
+        return false;
+    }
+
     // Each DUT is a plane
     for(const auto & dutname_sensorid: _dut_names_id[dev_id]) {
-std::cout << " Dut: " << dutname_sensorid.first << " (ID: " << dutname_sensorid.second << ")" 
-    << " Total words in Event: " << total_words 
-    << " group present: " << group_present 
-    << " event counter: " << event_counter
-    << " event time tag: " << event_time_tag 
-    << std::endl;
         // XXX - Can we provide a dutname in the stdplane?? 
         const int sensor_id = dutname_sensorid.second;        
         // Each DUT defines a plane
-        eudaq::StandardPlane plane(sensor_id, "CAEN5748", producer_name);
+        eudaq::StandardPlane plane(sensor_id, "CAENDT5742", producer_name);
         // Define the size of the DUT (in row and columns) --> Extracted from _nrows_ncolumns
         // Remember in here: first columns, then rows
         plane.SetSizeZS( (uint32_t)_nrows_ncolumns[dev_id][dutname_sensorid.second][1],
                 (uint32_t)_nrows_ncolumns[dev_id][dutname_sensorid.second][0],
                 0);
-        
-        // --> XXX -- IS this correct??  
+
+        // Extract waveforms per channel
         int pixid = 0;
         for(const auto & ch_rowcollist: _dut_channel_arrangement[dev_id][dutname_sensorid.second]) {
             const size_t channel = ch_rowcollist.first;
             // What group? 0-7 -> group 0, 8->15 group 1
-            const size_t gr = channel < 8 ? 0 : 1; 
-            const size_t channel_inside_group = channel < 8 ? channel : channel - 8;
+            size_t gr = channel < 8 ? 0 : 1; 
+            size_t channel_inside_group = channel < 8 ? channel : channel - 8;
+            // PArticular case: channel 16 and 17 are TR0 for group-0 and TR0 for group-1
+            if( channel > 15 ) {
+                gr = channel == 16 ? 0 : 1;
+                channel_inside_group = 8;
+            }
+
+            auto it_group = waveforms_group.find(gr);
+            if( it_group == waveforms_group.end() || it_group->second.size() == 0 ) {
+                // Channel belongs to a group that is not present in this event
+                // XXX What about the TRIGGER groups??
+                continue;
+            }
+            const std::vector<float> & waveform_float = it_group->second.at(channel_inside_group);
             
-            const std::vector<float> & waveform_float = waveforms_group[gr][channel_inside_group];
             // XXX -- Make this sense? Just to avoid crashing... [PROV]
             if(waveform_float.size() == 0)
             {
@@ -391,22 +482,10 @@ std::cout << " Dut: " << dutname_sensorid.first << " (ID: " << dutname_sensorid.
             // XXX -- Is this what we want? Or maybe extract the integral? 
             //        for sure we'd like to get the rise time as well?
             float amplitude = AmplitudeWF(waveform_float);
-/*std::cout << "DUT: " << dutname_sensorid.first << " Sensor: " << dutname_sensorid.second 
-    << " Amplitude: " << amplitude << std::endl; 
-std::cin.get();*/
 
             std::vector<double> wf(waveform_float.begin(), waveform_float.end());
             
-/*if(producer_name == "CAEN_IJS")
-{
-std::cout << "DUT: " << dutname_sensorid.first << " Sensor: " << dutname_sensorid.second  << " PIXID: " << pixid << std::endl;
- }*/
             for(const auto & pixel: ch_rowcollist.second) {
-/*if(producer_name == "CAEN_IJS")
-{
-std::cout << "Block id: " << ch_rowcollist.first << " pixid: " << pixid << ", pixel: col-" << pixel[1] << " ,row-" << pixel[0]
-    << " A=" << amplitude << std::endl ;
-}*/
                 // Note the signature introduce x,y -> col, row. Opposite to which we store
                 plane.PushPixel(pixel[1], pixel[0], amplitude, uint32_t(0));
                 plane.SetPixelAuxInfo(pixid, dutname_sensorid.first+":CH"+std::to_string(ch_rowcollist.first)+":col"+std::to_string(pixel[1])+":row"+std::to_string(pixel[0]));
@@ -416,12 +495,10 @@ std::cout << "Block id: " << ch_rowcollist.first << " pixid: " << pixid << ", pi
         }
         d2->AddPlane(plane);
     }
-/*d2->Print(std::cout);
-std::cin.get();*/
     return true;
 }
 
-PixelMap CAENDT5748RawEvent2StdEventConverter::GetDUTPixelMap(const std::string & dut_tag) const {
+PixelMap CAENDT5742RawEvent2StdEventConverter::GetDUTPixelMap(const std::string & dut_tag) const {
     
     // It must exist a tag with the name of the DUT
     // FIXME -- Error control: empyt string!!
