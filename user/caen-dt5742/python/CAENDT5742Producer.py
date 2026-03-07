@@ -6,14 +6,15 @@
 # FIXME -- Create timestamp? Extract from trigger channel?
 import ast
 
-# https://github.com/SengerM/CAENpy
 from CAENpy.CAENDigitizer import CAEN_DT5742_Digitizer
 import click
 
 import numpy as np
 import sys
+
 from pathlib import Path
-sys.path.insert(1, str((Path(__file__).parent.parent.parent.parent/'lib').resolve())) # Here is where `pyeudaq` lies.
+#sys.path.insert(1, str((Path(__file__).parent.parent.parent.parent/'lib').resolve())) # Here is where `pyeudaq` lies.
+
 import pyeudaq
 from pyeudaq import EUDAQ_INFO, EUDAQ_ERROR
 
@@ -23,11 +24,6 @@ import threading
 import time
 
 import pandas
-
-# This was added at DESY because the USB connection of the CAEN was randomly breaking, so in this we at least we get a notification in the phone ---
-from progressreporting.TelegramProgressReporter import SafeTelegramReporter4Loops # https://github.com/SengerM/progressreporting
-import my_telegram_bots # Here I keep the info from my bots, never make it public!
-# --------------------------------------------------------------------------------------------------------------------------------------------------
 
 CAEN_CHANNELS_NAMES = [f'CH{_}' for _ in range(16)] + [f'trigger_group_{_}' for _ in [0,1]]
 
@@ -63,8 +59,8 @@ def parse_channels_mapping(path_to_channels_mapping_file:Path)->dict:
     for DUT_name, df_DUT in mapping.groupby('DUT_name'):
         channels_mapping[DUT_name] = dict()
         for channel_name, df_channel in df_DUT.groupby('channel_name'):
-            rowscols = df_channel[['row','col']].to_numpy()
-            channels_mapping[DUT_name][channel_name] = [tuple(_) for _ in rowscols]
+            rowscols = df_channel[['row','col']].to_numpy(dtype=int)
+            channels_mapping[DUT_name][channel_name] = [tuple(map(int,rc)) for rc in rowscols]
     
     return channels_mapping
 
@@ -181,11 +177,11 @@ class CAENDT5742Producer(pyeudaq.Producer):
         
         self._digitizer = CAEN_DAQ(LinkNum=LinkNum)
         
-        self._telegram_reporter = SafeTelegramReporter4Loops(
-            bot_token=my_telegram_bots.robobot.token, 
-            chat_id='-4198108027',
-            parse_mode = 'Markdown', # This is optional. But it is cool.
-        )
+        #self._telegram_reporter = SafeTelegramReporter4Loops(
+        #    bot_token=my_telegram_bots.robobot.token, 
+        #    chat_id='-4198108027',
+        #    parse_mode = 'Markdown', # This is optional. But it is cool.
+        #)
         
         if expected_serial_number is not None:
             actual_serial_number = str(self._digitizer.get_info()['SerialNumber'])
@@ -329,18 +325,22 @@ class CAENDT5742Producer(pyeudaq.Producer):
         # Return inmediately if simulation
         if self.is_simulation:
             self._digitizer.stop_acquisition()
+            self.is_running = 0
+            return 
         
         with self._CAEN_lock:
             self._digitizer.stop_acquisition()
-        is_there_stuff_still_in_the_digitizer_memory = True
-        while is_there_stuff_still_in_the_digitizer_memory:
-            # Wait for any remaining data that is still in the memory of the digitizer.
-            with self._CAEN_lock:
-                is_there_stuff_still_in_the_digitizer_memory = \
-                        self._digitizer.get_acquisition_status()['at least one event available for readout'] == True
-            time.sleep(.1)
-        # Wait for all the waveforms to be processed.
-        self.events_queue.join()
+        # XXX --- 
+        #is_there_stuff_still_in_the_digitizer_memory = True
+        #while is_there_stuff_still_in_the_digitizer_memory:
+        #    # Wait for any remaining data that is still in the memory of the digitizer.
+        #    with self._CAEN_lock:
+        #        is_there_stuff_still_in_the_digitizer_memory = \
+        #                self._digitizer.get_acquisition_status()['at least one event available for readout'] == True
+        #    time.sleep(.1)
+        ## Wait for all the waveforms to be processed.
+        #self.events_queue.join()
+        # XXX --- 
         self.is_running = 0
 
     @exception_handler
@@ -352,55 +352,84 @@ class CAENDT5742Producer(pyeudaq.Producer):
         
     @exception_handler
     def RunLoop(self):
-        self.events_queue = queue.Queue()
-        
-        def thread_target_function():
-            do_bore = True
-            n_trigger = 0
-            previous_decoded_trigger_id = None
-            decoded_trigger_number_of_turns = 0
-            while self.is_running:
-                # -- XXX - THe CHannel will give the information of thee position in x/y of the pad
-                #          within the DUT
-                # Extract the waveforms
-                if not self.events_queue.empty():
-                    # Creation of the caen event type and sub-type 
-                    # XXX -- Need this new event type, or enough with the RawEvent?
-                    event = pyeudaq.Event("RawEvent", "CAENDT5748")
-                    # From the event_counter
-                    trigger_counter, raw_event = self.events_queue.get()
-                    # --- Check this trigger_counter, maybe against n_trigger?
-                    event.SetTriggerN(trigger_counter)
-
-                    # BORE info
-                    if do_bore::
-                        self._fill_bore(event)
-                        do_bore = False
-                    
-                    # FIXME -- Obtain a strong trigger obtention -> from the event_counter
-                    n_trigger += 1
-                    
-                    event.AddBlock(0, raw_event)
-                        
-                    self.SendEvent(event)
-                    self.events_queue.task_done()
-            
-        threading.Thread(target=thread_target_function, daemon=True).start()
-        
-        # XXX -- Threading NEEDED? really?
         while self.is_running:
+            # --- XXX
+            do_bore = True
+            # --- XXX
+
+            raw_events = []
             with self._CAEN_lock:
-                if self._digitizer.get_acquisition_status()['at least one event available for readout'] == True:
-                    wf_start = time.perf_counter()
-                    waveforms = self._digitizer.get_waveforms(get_time=False, get_ADCu_instead_of_volts=False)
-                    wf_end = time.perf_counter()
-                    # Waveforms is a list of dictionaries, each of which contains the waveforms from each trigger.
-                    for this_trigger_waveforms in waveforms:
-                        self.events_queue.put(this_trigger_waveforms)
-                        self._telegram_reporter.update(1)
-                    wf_end_2 = time.perf_counter()
-                    print(f'get_waveform: {(wf_end-wf_start)*1e3:0.4f} [ms]. Total process (including put in queue and telegram: {(wf_end_2-wf_start)*1e3:0.4f} [ms]')
-            time.sleep(1e-6) # This small delay is so that the lock can be acquired by other threads, otherwise it goes so fast that no one else can acquire it other than by chance.
+                if self._digitizer.get_acquisition_status()['at least one event available for readout']:
+                    # Return [(evt_counter, ttt, raw_event)]
+                    raw_events = self._digitizer.get_raw_events()
+            
+            for evt_counter, ttt, raw_evt in raw_events:
+                ev = pyeudaq.Event('RawEvent', 'CAENDT5742')
+                ev.SetTriggerN(int(evt_counter))
+                ev.SetTag('caen_trigger_time_tag', str(int(ttt)))
+
+                # --- XXX
+                if do_bore:
+                    self._fill_bore(ev)
+                    do_bore = False
+                # --- XXX
+                
+                ev.AddBlock(0, raw_evt)
+                self.SendEvent(ev)
+            # Small sleep to aovid busy spinning... ?
+            time.sleep(1e-4)
+
+        # XXX --- 
+        #self.events_queue = queue.Queue()
+        #
+        #def thread_target_function():
+        #    do_bore = True
+        #    n_trigger = 0
+        #    previous_decoded_trigger_id = None
+        #    decoded_trigger_number_of_turns = 0
+        #    while self.is_running:
+        #        # -- XXX - THe CHannel will give the information of thee position in x/y of the pad
+        #        #          within the DUT
+        #        # Extract the waveforms
+        #        if not self.events_queue.empty():
+        #            # Creation of the caen event type and sub-type 
+        #            # XXX -- Need this new event type, or enough with the RawEvent?
+        #            event = pyeudaq.Event("RawEvent", "CAENDT5742")
+        #            # From the event_counter
+        #            trigger_counter, raw_event = self.events_queue.get()
+        #            # --- Check this trigger_counter, maybe against n_trigger?
+        #            event.SetTriggerN(trigger_counter)
+
+        #            # BORE info
+        #            if do_bore:
+        #                self._fill_bore(event)
+        #                do_bore = False
+        #            
+        #            # FIXME -- Obtain a strong trigger obtention -> from the event_counter
+        #            n_trigger += 1
+        #            
+        #            event.AddBlock(0, raw_event)
+        #                
+        #            self.SendEvent(event)
+        #            self.events_queue.task_done()
+        #    
+        #threading.Thread(target=thread_target_function, daemon=True).start()
+        #
+        ## XXX -- Threading NEEDED? really?
+        #while self.is_running:
+        #    with self._CAEN_lock:
+        #        if self._digitizer.get_acquisition_status()['at least one event available for readout'] == True:
+        #            wf_start = time.perf_counter()
+        #            waveforms = self._digitizer.get_waveforms(get_time=False, get_ADCu_instead_of_volts=False)
+        #            wf_end = time.perf_counter()
+        #            # Waveforms is a list of dictionaries, each of which contains the waveforms from each trigger.
+        #            for this_trigger_waveforms in waveforms:
+        #                self.events_queue.put(this_trigger_waveforms)
+        #                #self._telegram_reporter.update(1)
+        #            wf_end_2 = time.perf_counter()
+        #            print(f'get_waveform: {(wf_end-wf_start)*1e3:0.4f} [ms]. Total process (including put in queue and telegram: {(wf_end_2-wf_start)*1e3:0.4f} [ms]')
+        #    time.sleep(1e-6) # This small delay is so that the lock can be acquired by other threads, otherwise it goes so fast that no one else can acquire it other than by chance.
+        # XXX --- 
 
 @click.command()
 @click.option('-n','--name', default='CAEN_digitizer',
