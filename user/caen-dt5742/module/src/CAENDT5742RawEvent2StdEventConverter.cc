@@ -227,7 +227,7 @@ float CAENDT5742RawEvent2StdEventConverter::AmplitudeWF(const std::vector<float>
     const int polarity = PolarityWF(waveform); 
     std::vector<float> wf_abs(waveform);
     for(float & v: wf_abs) {
-        v * polarity;
+        v *= polarity;
     }
     //
     // All signals are now positives
