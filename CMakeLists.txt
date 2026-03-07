@@ -29,7 +29,9 @@ set(EUDAQ_CORE_LIBRARY core)
 ################
 # C++ STANDARD #
 ################
-set(CMAKE_CXX_STANDARD 17 CACHE PATH "C++ standard")
+if(NOT DEFINED CMAKE_CXX_STANDARD)
+  set(CMAKE_CXX_STANDARD 17 CACHE STRING "C++ standard")
+endif()
 message("-- C++ STANDARD set to: ${CMAKE_CXX_STANDARD}")
 
 include_directories(main/lib/core/include)
