@@ -19,6 +19,24 @@
 // Each channel can be bounded to several diodes/pixels
 using PixelMap = std::map<int, std::vector<std::array<int,2>> >;
 
+// Convert a 12-bit ADC waveform (0..4095) into Volts assuming a bipolar mapping around mid-scale.
+// For DT5742 default input dynamic range is 1 Vpp.
+// ADC is 12-bit
+static inline std::vector<double> ADC12ToVolts(const std::vector<double> &wf_adc, double dc_offset = 0.0, double Vpp = 1.0) {
+    // 2^11
+    constexpr double ADC_MID = 2048.0;
+    // 2^12
+    constexpr double LSB_DEN = 4096.0;
+    const double lsb = Vpp / LSB_DEN;
+
+    std::vector<double> wf_v;
+    wf_v.reserve(wf_adc.size());
+    for (float a : wf_adc) {
+        wf_v.push_back( ((static_cast<double>(a) - ADC_MID) * lsb) + dc_offset );
+    }
+    return wf_v;
+}
+
 class CAENDT5742RawEvent2StdEventConverter: public eudaq::StdEventConverter {
     public:
         bool Converting(eudaq::EventSPC d1, eudaq::StdEventSP d2, eudaq::ConfigSPC conf) const override;
@@ -485,7 +503,9 @@ bool CAENDT5742RawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq:
             //        for sure we'd like to get the rise time as well?
             float amplitude = AmplitudeWF(waveform_float);
 
-            std::vector<double> wf(waveform_float.begin(), waveform_float.end());
+            std::vector<double> wf_adc(waveform_float.begin(), waveform_float.end());
+            // Voffset - 0.0, Vpp  = 1.0
+            std::vector<double> wf = ADC12ToVolts(wf_adc, 0.0, 1.0);
             
             for(const auto & pixel: ch_rowcollist.second) {
                 // Note the signature introduce x,y -> col, row. Opposite to which we store
