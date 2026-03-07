@@ -138,6 +138,17 @@ class CAENDT5742Producer(pyeudaq.Producer):
             self.is_simulation = False
         
         self._name = name
+        
+        # Threading for acquisition -> sending decoupling
+        self._stop_evt = threading.Event()
+
+        # Bounded queue to provent unbounded memory growth
+        # (Tune maxsize depending on event size and expected rate?)
+        self._raw_queue = queue.Queue(maxsize=2000)
+
+        # Acquisition worker thread handle
+        self._acq_thread = None
+
                         
     def _fill_bore(self, event):
         """Fill the Begin of Run Event with some metadata
@@ -163,6 +174,50 @@ class CAENDT5742Producer(pyeudaq.Producer):
             event.SetTag(dut_name, str(self.channels_mapping[dut_name]).replace('{','').replace('}','').replace(' ','').replace("'",'').replace('"',''))
             n_dut += 1
         event.SetTag(f'producer_name', str(self._name))
+
+    def _acq_worker(self):
+        """
+        Acquisition thread:
+            - Read raw events from the digitizer as soon as they are available
+            - Push (evt_counter, ttt, raw_evt) into a bounded queuea
+
+        Design choice when queue is full:
+            - Drop oldest item to avoid stallingacquisition (preferred for "no backpressure")
+        """
+        while self.is_running and (not self._stop_evt.is_set()):
+            raw_events = []
+            try:
+                with self._CAEN_lock:
+                    # XXX Can skip status polling and just call get_raw_events
+                    # if get_raw_events is cheap when there is no data 
+                    if self._digitizer.get_acquisition_status()['at least one event available for readout']:
+                        raw_events = self._digitizer.get_raw_events()
+            except Exception as e:
+                EUDAQ_ERROR(f"Acquisition thread error: {e}")
+                time.sleep(1e-3)
+                continue
+
+            # Push to queue (drop-oldest policy if full)
+            for evt_counter, ttt, raw_evt in raw_events:
+                if not self.is_running or self._stop_evt.is_set():
+                    break
+                try:
+                    self._raw_queue.put((int(evt_counter), int(ttt), raw_evt), block=False)
+                except queue.Full:
+                    # Drop one oldest and retry once
+                    try:
+                        _ = self._raw_queue.get_nowait()
+                        self._raw_queue.task_done()
+                    except queue.Emtpy:
+                        pass
+                    try:
+                        self._raw_queue.put((int(evt_counter), int(ttt), raw_Evt), block=False)
+                    except queue.Full:
+                        # Still full: drop this event
+                        pass
+            # Avoid burning CPU when idle
+            if not raw_events:
+                time.sleep(2e-4)
         
     @exception_handler
     def DoInitialise(self):
@@ -317,8 +372,13 @@ class CAENDT5742Producer(pyeudaq.Producer):
         
     @exception_handler
     def DoStartRun(self):
+        self._stop_evt.clear()
         self._digitizer.start_acquisition()
         self.is_running = 1
+
+        # Start acquisition thread
+        self._acq_thread = threading.Thread(target=self._acq_worker, daemon=True)
+        self._acq_thread.start()
         
     @exception_handler
     def DoStopRun(self):
@@ -328,20 +388,16 @@ class CAENDT5742Producer(pyeudaq.Producer):
             self.is_running = 0
             return 
         
+        # Stop acquisition trhead first
+        self.is_running = 0 
+        self._stop_evt.set()
+        
+        if self._acq_thread is not None and self._acq_thread.is_alive():
+            self._acq_thread.join(timeout=2.0)
+
+        # Stop digitizer acquisition (thread-safe)
         with self._CAEN_lock:
             self._digitizer.stop_acquisition()
-        # XXX --- 
-        #is_there_stuff_still_in_the_digitizer_memory = True
-        #while is_there_stuff_still_in_the_digitizer_memory:
-        #    # Wait for any remaining data that is still in the memory of the digitizer.
-        #    with self._CAEN_lock:
-        #        is_there_stuff_still_in_the_digitizer_memory = \
-        #                self._digitizer.get_acquisition_status()['at least one event available for readout'] == True
-        #    time.sleep(.1)
-        ## Wait for all the waveforms to be processed.
-        #self.events_queue.join()
-        # XXX --- 
-        self.is_running = 0
 
     @exception_handler
     def DoReset(self):
@@ -352,84 +408,34 @@ class CAENDT5742Producer(pyeudaq.Producer):
         
     @exception_handler
     def RunLoop(self):
-        while self.is_running:
-            # --- XXX
-            do_bore = True
-            # --- XXX
+        """
+        Sender loop:
+            - Pop raw events from queue and send them to EUDAQ
+        """
+        # --- XXX
+        do_bore = True
+        # --- XXX
+        while self.is_running or (not self._raw_queue.empty()):
+            try:
+                evt_counter, ttt, raw_evt = self._raw_queue.get(timeout=0.2)
+            except queue.Empty:
+                continue
 
-            raw_events = []
-            with self._CAEN_lock:
-                if self._digitizer.get_acquisition_status()['at least one event available for readout']:
-                    # Return [(evt_counter, ttt, raw_event)]
-                    raw_events = self._digitizer.get_raw_events()
+
+            ev = pyeudaq.Event('RawEvent', 'CAENDT5742')
+            ev.SetTriggerN(int(evt_counter))
+            ev.SetTag('caen_trigger_time_tag', str(int(ttt)))
+            # --- XXX
+            if do_bore:
+                self._fill_bore(ev)
+                do_bore = False
+            # --- XXX            
+            ev.AddBlock(0, raw_evt)
             
-            for evt_counter, ttt, raw_evt in raw_events:
-                ev = pyeudaq.Event('RawEvent', 'CAENDT5742')
-                ev.SetTriggerN(int(evt_counter))
-                ev.SetTag('caen_trigger_time_tag', str(int(ttt)))
-
-                # --- XXX
-                if do_bore:
-                    self._fill_bore(ev)
-                    do_bore = False
-                # --- XXX
-                
-                ev.AddBlock(0, raw_evt)
-                self.SendEvent(ev)
+            self.SendEvent(ev)
             # Small sleep to aovid busy spinning... ?
-            time.sleep(1e-4)
+            self._raw_queue.task_done()
 
-        # XXX --- 
-        #self.events_queue = queue.Queue()
-        #
-        #def thread_target_function():
-        #    do_bore = True
-        #    n_trigger = 0
-        #    previous_decoded_trigger_id = None
-        #    decoded_trigger_number_of_turns = 0
-        #    while self.is_running:
-        #        # -- XXX - THe CHannel will give the information of thee position in x/y of the pad
-        #        #          within the DUT
-        #        # Extract the waveforms
-        #        if not self.events_queue.empty():
-        #            # Creation of the caen event type and sub-type 
-        #            # XXX -- Need this new event type, or enough with the RawEvent?
-        #            event = pyeudaq.Event("RawEvent", "CAENDT5742")
-        #            # From the event_counter
-        #            trigger_counter, raw_event = self.events_queue.get()
-        #            # --- Check this trigger_counter, maybe against n_trigger?
-        #            event.SetTriggerN(trigger_counter)
-
-        #            # BORE info
-        #            if do_bore:
-        #                self._fill_bore(event)
-        #                do_bore = False
-        #            
-        #            # FIXME -- Obtain a strong trigger obtention -> from the event_counter
-        #            n_trigger += 1
-        #            
-        #            event.AddBlock(0, raw_event)
-        #                
-        #            self.SendEvent(event)
-        #            self.events_queue.task_done()
-        #    
-        #threading.Thread(target=thread_target_function, daemon=True).start()
-        #
-        ## XXX -- Threading NEEDED? really?
-        #while self.is_running:
-        #    with self._CAEN_lock:
-        #        if self._digitizer.get_acquisition_status()['at least one event available for readout'] == True:
-        #            wf_start = time.perf_counter()
-        #            waveforms = self._digitizer.get_waveforms(get_time=False, get_ADCu_instead_of_volts=False)
-        #            wf_end = time.perf_counter()
-        #            # Waveforms is a list of dictionaries, each of which contains the waveforms from each trigger.
-        #            for this_trigger_waveforms in waveforms:
-        #                self.events_queue.put(this_trigger_waveforms)
-        #                #self._telegram_reporter.update(1)
-        #            wf_end_2 = time.perf_counter()
-        #            print(f'get_waveform: {(wf_end-wf_start)*1e3:0.4f} [ms]. Total process (including put in queue and telegram: {(wf_end_2-wf_start)*1e3:0.4f} [ms]')
-        #    time.sleep(1e-6) # This small delay is so that the lock can be acquired by other threads, otherwise it goes so fast that no one else can acquire it other than by chance.
-        # XXX --- 
 
 @click.command()
 @click.option('-n','--name', default='CAEN_digitizer',
