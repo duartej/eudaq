@@ -338,6 +338,14 @@ class CAENDT5742Producer(pyeudaq.Producer):
             group_2 = any([_ in ([f'CH{n}' for n in [8,9,10,11,12,13,14,15]] + ['trigger_group_1']) for _ in self.set_of_active_channels]),
         )
         self._digitizer.set_fast_trigger_DC_offset(V=0)
+
+        ### XXX - FIXME to bew configurable
+        # So far, just force negative pulses
+        DC_OFFSET = 0x600F
+        for ch in filter(lambda _channel: _channel.find('trigger_') == -1, self.set_of_active_channels):
+            self._digitizer.set_channel_DC_offset(int(ch.strip('CH')), DC_OFFSET)
+        EUDAQ_INFO(f'Set OFFSET channel (except for trigger) to {hex(DC_OFFSET)}')
+        ### XXX - FIXME to bew configurable
         
         # Enable busy signal on GPO:
         self._digitizer.write_register(
