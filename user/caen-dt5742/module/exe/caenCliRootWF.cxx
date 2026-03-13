@@ -201,7 +201,7 @@ void CAENDT5742Events::initialize(const std::shared_ptr<const eudaq::Event> & bo
     // Extract the initial (hardcoded to 0) and the temporal step value of the waveforms
     // --- in SECONDS
     _t0[device_id] = 0.0;
-    _dt[device_id] = (_sampling_frequency_MHz*1e6)/_n_samples_per_waveform;
+    _dt[device_id] = 1.0 / (_sampling_frequency_MHz * 1.0e6);
 
     // Print-out the topology of the sensor and wire-bonding
     /*std::cout << " Defined DUTs in [" << _name[device_id] << "] digitizer: " << std::endl;
@@ -511,13 +511,12 @@ void ROOTCreator::fill_event_waveforms(CAENDT5742Events & caen,
         // in the configuration file (so extracted in the `initialize` method)
         for(const auto & chid: caen.get_channel_list(device_id, dutname_sensorid.first))
         {
-            if( caen.get_rows_and_columns_list(device_id,dutname_sensorid.second,chid).size() > 1 )
+            const auto row_col_list = caen.get_rows_and_columns_list(device_id, dutname_sensorid.second, chid);
+            for(size_t i = 0; i < row_col_list.size(); ++i)
             {
-                const std::string msg("Unable to deal with more than one pixel per channel... ");
-                throw std::runtime_error(msg);
+                _volt->push_back(dut_plane.GetWaveform(pixid));
+                ++pixid;
             }
-            _volt->push_back( dut_plane.GetWaveform(pixid) );
-            ++pixid;
         }
     }
     _wf_tree->Fill();
