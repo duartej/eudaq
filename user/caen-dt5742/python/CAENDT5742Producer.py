@@ -149,6 +149,9 @@ class CAENDT5742Producer(pyeudaq.Producer):
         # Acquisition worker thread handle
         self._acq_thread = None
 
+        # Variable to check de-sync
+        self._last_evt_counter_sent = -1
+
                         
     def _fill_bore(self, event):
         """Fill the Begin of Run Event with some metadata
@@ -197,6 +200,8 @@ class CAENDT5742Producer(pyeudaq.Producer):
                 time.sleep(1e-3)
                 continue
 
+            last_evt_counter_in_block = None
+
             # Push to queue (drop-oldest policy if full)
             for evt_counter, ttt, raw_evt in raw_events:
                 # Check for lost events inside the block
@@ -208,6 +213,7 @@ class CAENDT5742Producer(pyeudaq.Producer):
                 if not self.is_running or self._stop_evt.is_set():
                     break
                 try:
+                    last_evt_counter_in_block = evt_counter
                     self._raw_queue.put((int(evt_counter), int(ttt), raw_evt), block=False)
                 except queue.Full:
                     # Drop one oldest and retry once
@@ -389,6 +395,9 @@ class CAENDT5742Producer(pyeudaq.Producer):
         self._stop_evt.clear()
         self._digitizer.start_acquisition()
         self.is_running = 1
+ 
+        # Start counter
+        self._last_evt_counter_sent = -1
 
         # Start acquisition thread
         self._acq_thread = threading.Thread(target=self._acq_worker, daemon=True)
@@ -435,6 +444,10 @@ class CAENDT5742Producer(pyeudaq.Producer):
             except queue.Empty:
                 continue
 
+            if evt_counter != (self._last_evt_counter_sent + 1):
+                EUDAQ_ERROR(f"Non-consecutive event counter across global sent events:"
+                            f"prev={self._last_evt_counter_sent}, current={evt_counter}")
+            self._last_evt_counter_sent += 1
 
             ev = pyeudaq.Event('RawEvent', 'CAENDT5742')
             ev.SetTriggerN(int(evt_counter))
