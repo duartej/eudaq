@@ -182,7 +182,7 @@ class CAENDT5742Producer(pyeudaq.Producer):
             - Push (evt_counter, ttt, raw_evt) into a bounded queuea
 
         Design choice when queue is full:
-            - Drop oldest item to avoid stallingacquisition (preferred for "no backpressure")
+            - Drop oldest item to avoid stalling acquisition (preferred for "no backpressure")
         """
         while self.is_running and (not self._stop_evt.is_set()):
             raw_events = []
@@ -199,6 +199,12 @@ class CAENDT5742Producer(pyeudaq.Producer):
 
             # Push to queue (drop-oldest policy if full)
             for evt_counter, ttt, raw_evt in raw_events:
+                # Check for lost events inside the block
+                evt_counter = int(evt_counter)
+                if last_evt_counter_in_block is not None \
+                        and (evt_counter != (last_evt_counter_in_block + 1)):
+                    EUDAQ_ERROR(f"Non-consecutive event counter inside BLT block:"
+                                f"prev={last_evt_counter_in_block}, current={evt_counter}")
                 if not self.is_running or self._stop_evt.is_set():
                     break
                 try:
@@ -208,10 +214,10 @@ class CAENDT5742Producer(pyeudaq.Producer):
                     try:
                         _ = self._raw_queue.get_nowait()
                         self._raw_queue.task_done()
-                    except queue.Empty:
+                    except queue.Emtpy:
                         pass
                     try:
-                        self._raw_queue.put((int(evt_counter), int(ttt), raw_evt), block=False)
+                        self._raw_queue.put((int(evt_counter), int(ttt), raw_Evt), block=False)
                     except queue.Full:
                         # Still full: drop this event
                         pass
