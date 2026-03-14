@@ -208,10 +208,10 @@ class CAENDT5742Producer(pyeudaq.Producer):
                     try:
                         _ = self._raw_queue.get_nowait()
                         self._raw_queue.task_done()
-                    except queue.Emtpy:
+                    except queue.Empty:
                         pass
                     try:
-                        self._raw_queue.put((int(evt_counter), int(ttt), raw_Evt), block=False)
+                        self._raw_queue.put((int(evt_counter), int(ttt), raw_evt), block=False)
                     except queue.Full:
                         # Still full: drop this event
                         pass
