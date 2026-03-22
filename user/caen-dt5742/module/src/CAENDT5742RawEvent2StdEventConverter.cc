@@ -18,14 +18,11 @@
 #include <cstdint>
 #include <algorithm>
 #include <regex>
-#include <numeric>
 #include <cmath>
 #include <cstring>
 #include <sstream>
 #include <cstdlib>
-#include <stdexcept>
 #include <cctype>
-#include <fstream>
 
 #ifndef CAEN_DT5742_CORRECTION_TABLES_DIR
 #error "CAEN_DT5742_CORRECTION_TABLES_DIR must be defined from CMake"
@@ -203,7 +200,7 @@ namespace {
 }
 
 
-void CAENDT5742RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, eudaq::ConfigurationSPC conf) const {
+void CAENDT5742RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, eudaq::ConfigurationSPC /*conf*/) const {
     
     const int device_id = bore->GetDeviceN();
     
@@ -509,7 +506,7 @@ bool CAENDT5742RawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq:
         d2->SetTimestamp(d1->GetTimestampBegin(), d1->GetTimestampEnd(), d1->IsFlagTimestamp());
     }
 
-    const std::string producer_name = _name[d1->GetDeviceN()];
+    const std::string producer_name = _name[dev_id];
     
     // Extract the event and convert it back to 32b words
     // See data format in CAEN User Manual 9.7.2 
