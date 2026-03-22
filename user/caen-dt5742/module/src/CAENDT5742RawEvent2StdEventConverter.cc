@@ -647,6 +647,14 @@ PixelMap CAENDT5742RawEvent2StdEventConverter::GetDUTPixelMap(const std::string 
                 continue;
             }
         }
+        
+        // Check for malformed mapping
+        if(current_channel == -1) {
+            if(!std::all_of(chstr.begin(), chstr.end(), [](unsigned char c){ return std::isspace(c); })) {
+                EUDAQ_ERROR("Malformed DUT channel mapping fragment: `" + chstr + "`");
+            }
+            continue;
+        }
 
         for(std::sregex_iterator cr = std::sregex_iterator(chstr.begin(),chstr.end(),re_colrow); cr != std::sregex_iterator();++cr) {
             std::smatch m = *cr;
