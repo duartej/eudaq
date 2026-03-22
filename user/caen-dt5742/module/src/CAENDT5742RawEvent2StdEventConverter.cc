@@ -121,7 +121,6 @@ class CAENDT5742RawEvent2StdEventConverter: public eudaq::StdEventConverter {
         void Initialize(eudaq::EventSPC bore, eudaq::ConfigurationSPC conf) const;
         PixelMap GetDUTPixelMap(const std::string & dut_tag) const; 
         // Helper functions
-        int PolarityWF(const std::vector<double> & wf) const;
         float AmplitudeWF(const std::vector<double> & wf) const;
         bool DecodeRawEvent(const int dev_id, const std::vector<uint8_t> & raw, std::map<size_t, std::vector<std::vector<float>>> & waveforms_group) const;
         bool EnsureCorrectionTablesLoaded(int dev_id) const;
@@ -350,18 +349,6 @@ void CAENDT5742RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, euda
     EUDAQ_DEBUG(" Initialize:: Channel list (internal-ids): [ " + oss.str() +" ]");
 }
 
-// FIXME -- Calculate it once: use a memoizer
-int CAENDT5742RawEvent2StdEventConverter::PolarityWF(const std::vector<double> & wf) const {
-    if (wf.empty()) {
-        return 1;
-    }
-    const double baseline = Median(wf);
-    const auto itminmax = std::minmax_element(wf.begin(), wf.end());
-    const double min_dev = *itminmax.first - baseline;
-    const double max_dev = *itminmax.second - baseline;
-    return (std::abs(min_dev) > std::abs(max_dev)) ? -1 : 1;
-}
-
 float CAENDT5742RawEvent2StdEventConverter::AmplitudeWF(const std::vector<double>& waveform) const {
     if (waveform.empty()) {
         return 0.0f;
@@ -588,12 +575,13 @@ bool CAENDT5742RawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq:
             // From ADC to Volts
             std::vector<double> wf = ADC12ToVolts(wf_adc, dc_offset_volts, Vpp);
 
-            float amplitude = AmplitudeWF(wf);
+            const float amplitude = AmplitudeWF(wf);
+            float hit_value = std::abs(amplitude);
             
             for(const auto & pixel: ch_rowcollist.second) {
                 // Note the signature introduce x,y -> col, row. Opposite to which we store
                 // Amplitude as charge? It would be better a ToT or something similar
-                plane.PushPixel(pixel[1], pixel[0], amplitude, uint32_t(0));
+                plane.PushPixel(pixel[1], pixel[0], hit_value, uint32_t(0));
                 plane.SetPixelAuxInfo(pixid, 
                         dutname_sensorid.first+":CH"+
                             std::to_string(ch_rowcollist.first)+
