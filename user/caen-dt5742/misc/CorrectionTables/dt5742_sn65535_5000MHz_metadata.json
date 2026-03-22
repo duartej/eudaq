@@ -1,0 +1,23 @@
+{
+  "model": "DT5742B",
+  "serial_number": 65535,
+  "channels": 16,
+  "groups": 2,
+  "frequency_mhz": 5000,
+  "link_type": 0,
+  "link_num": 0,
+  "conet_node": 0,
+  "basepath_for_converter": "/data/CorrectionTables/dt5742_sn65535_5000MHz",
+  "group_basepaths_for_loadcorrectiontable": [
+    "/data/CorrectionTables/dt5742_sn65535_5000MHz_gr0",
+    "/data/CorrectionTables/dt5742_sn65535_5000MHz_gr1"
+  ],
+  "files": [
+    "/data/CorrectionTables/dt5742_sn65535_5000MHz_gr0_cell.txt",
+    "/data/CorrectionTables/dt5742_sn65535_5000MHz_gr0_nsample.txt",
+    "/data/CorrectionTables/dt5742_sn65535_5000MHz_gr0_time.txt",
+    "/data/CorrectionTables/dt5742_sn65535_5000MHz_gr1_cell.txt",
+    "/data/CorrectionTables/dt5742_sn65535_5000MHz_gr1_nsample.txt",
+    "/data/CorrectionTables/dt5742_sn65535_5000MHz_gr1_time.txt"
+  ]
+}
