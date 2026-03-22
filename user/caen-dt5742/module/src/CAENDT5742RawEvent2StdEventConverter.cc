@@ -481,7 +481,7 @@ bool CAENDT5742RawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq:
     const int dev_id = event->GetDeviceN();
     
     // Expecting only one block
-    if(event->NumBlocks() > 1) {
+    if(event->NumBlocks() != 1) {
         EUDAQ_ERROR(" Expected one block, got "+ std::to_string(event->NumBlocks()) );
         return false;
     }
