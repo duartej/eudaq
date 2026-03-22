@@ -244,9 +244,21 @@ void CAENDT5742RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, euda
     // XXX -- Identify the DUTS with the Channels
 
     // The record length
-    _n_samples_per_waveform = std::stoi(bore->GetTag("n_samples_per_waveform"));
+    const size_t ns = std::stoi(bore->GetTag("n_samples_per_waveform"));
     // The sampling frequency
-    _sampling_frequency_MHz = std::stoi(bore->GetTag("sampling_frequency_MHz"));
+    const size_t fs = std::stoi(bore->GetTag("sampling_frequency_MHz"));
+
+    if(!_name.empty() && _n_digitizers > 1) {
+        if(_n_samples_per_waveform != ns) {
+            EUDAQ_ERROR("Different n_samples_per_waveform across digitizers is not supported.");
+        }
+        if(_sampling_frequency_MHz != fs) {
+            EUDAQ_ERROR("Different sampling_frequency_MHz across digitizers is not supported.");
+        }
+    }
+    _n_samples_per_waveform = ns;
+    _sampling_frequency_MHz = fs;
+
     if( _sampling_frequency_MHz != 5000 ) {
         EUDAQ_WARN("This converter is configured to use 5 GHz correction tables, but the BORE reports " +
                    std::to_string(_sampling_frequency_MHz) + " MHz.");
