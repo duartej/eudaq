@@ -1,5 +1,12 @@
-// -- XXX DOC 
-// -- 
+// EUDAQ converter for CAEN DT5742 raw events.
+//
+// It reads the binary event blocks written by the producer, recovers the
+// acquisition settings from the BORE, optionally applies the CAEN x742 offline
+// DRS4 corrections, decodes the raw event structure, reconstructs the channel
+// waveforms, converts ADC samples to physical units, and exports the result as
+// a EUDAQ StandardEvent with waveform and timing metadata.
+//
+// J. Duarte-Campderros (IFCA)
 #include "eudaq/StdEventConverter.hh"
 #include "eudaq/RawEvent.hh"
 #include "eudaq/Logger.hh"
@@ -14,27 +21,98 @@
 #include <numeric>
 #include <cmath>
 #include <cstring>
+#include <sstream>
+#include <cstdlib>
+#include <stdexcept>
+#include <cctype>
+#include <fstream>
+
+#ifndef CAEN_DT5742_CORRECTION_TABLES_DIR
+#error "CAEN_DT5742_CORRECTION_TABLES_DIR must be defined from CMake"
+#endif
+
+extern "C" {
+#include "X742CorrectionRoutines.h"
+#include "X742DecodeRoutines.h"
+}
 
 // Digitizer: { channel : [ (row, col), (row, col), ... ], 
 // Each channel can be bounded to several diodes/pixels
 using PixelMap = std::map<int, std::vector<std::array<int,2>> >;
 
-// Convert a 12-bit ADC waveform (0..4095) into Volts assuming a bipolar mapping around mid-scale.
-// For DT5742 default input dynamic range is 1 Vpp.
-// ADC is 12-bit
+static inline std::string ResolveDigitizerSerialFromName(const std::string &device_name) {
+    static const std::map<std::string, std::string> kDeviceNameToSerial = {
+        {"CAEN_UZH", "25004"},
+        {"CAEN_IJS", "22890"},
+    };
+    const auto it = kDeviceNameToSerial.find(device_name);
+    if (it != kDeviceNameToSerial.end()) {
+        return it->second;
+    }
+    return "";
+}
+
+static inline std::string BuildCorrectionBasePath(const std::string &serial) {
+    std::string base_dir(CAEN_DT5742_CORRECTION_TABLES_DIR);
+    if(!base_dir.empty() && base_dir.back() != '/') {
+        base_dir += "/";
+    }
+    return base_dir + "dt5742_sn" + serial + "_5000MHz";
+}
+// Auxiliary functions for DAC to Volts conversion for the DC-offset
+static inline double DACToBaselineVolts(uint32_t dac, double Vpp) {
+    return (static_cast<double>(dac) / 65535.0 - 0.5) * Vpp;
+}
+
+
+// Convert a 12-bit ADC waveform (0..4095) into Volts. For DT5742 default input dynamic range is 1 Vpp. 
 static inline std::vector<double> ADC12ToVolts(const std::vector<double> &wf_adc, double dc_offset = 0.0, double Vpp = 1.0) {
-    // 2^11
     constexpr double ADC_MID = 2048.0;
-    // 2^12
     constexpr double LSB_DEN = 4096.0;
     const double lsb = Vpp / LSB_DEN;
 
     std::vector<double> wf_v;
     wf_v.reserve(wf_adc.size());
-    for (float a : wf_adc) {
-        wf_v.push_back( ((static_cast<double>(a) - ADC_MID) * lsb) + dc_offset );
+    for(double a : wf_adc) {
+        wf_v.push_back(((a - ADC_MID) * lsb) + dc_offset);
     }
     return wf_v;
+}
+
+static inline double Median(std::vector<double> values) {
+    if (values.empty()) {
+        return 0.0;
+    }
+    const auto mid = values.begin() + values.size() / 2;
+    std::nth_element(values.begin(), mid, values.end());
+    if ((values.size() % 2) != 0) {
+        return *mid;
+    }
+    const double hi = *mid;
+    std::nth_element(values.begin(), mid - 1, values.end());
+    return 0.5 * (hi + *(mid - 1));
+}
+
+// Auxiliary functions for the correction tables
+static inline std::string GroupedBasePath(const std::string &basepath, int group_id) {
+    return basepath + "_gr" + std::to_string(group_id);
+}
+
+// Free memory 
+static inline void FreeDecodedX742Event(CAEN_DGTZ_X742_EVENT_t *evt) {
+    if(evt == nullptr) {
+        return;
+    }
+    for(size_t g = 0; g < 2; ++g) {
+        if(evt->GrPresent[g] != 1) {
+            continue;
+        }
+        for(size_t ch = 0; ch < 9; ++ch) {
+            std::free(evt->DataGroup[g].DataChannel[ch]);
+            evt->DataGroup[g].DataChannel[ch] = nullptr;
+        }
+    }
+    std::free(evt);
 }
 
 class CAENDT5742RawEvent2StdEventConverter: public eudaq::StdEventConverter {
@@ -46,10 +124,10 @@ class CAENDT5742RawEvent2StdEventConverter: public eudaq::StdEventConverter {
         void Initialize(eudaq::EventSPC bore, eudaq::ConfigurationSPC conf) const;
         PixelMap GetDUTPixelMap(const std::string & dut_tag) const; 
         // Helper functions
-        void waveforms_reassemble(uint32_t w0, uint32_t w1, uint32_t w2, std::vector<std::vector<float> > & waveforms) const;
-        void waveforms_reassemble(uint32_t w0, uint32_t w1, uint32_t w2, const size_t n_sample, std::vector<float> & tr0_wf) const;
-        int PolarityWF(const std::vector<float> & wf) const;
-        float AmplitudeWF(const std::vector<float> & wf) const;
+        int PolarityWF(const std::vector<double> & wf) const;
+        float AmplitudeWF(const std::vector<double> & wf) const;
+        bool DecodeRawEvent(const int dev_id, const std::vector<uint8_t> & raw, std::map<size_t, std::vector<std::vector<float>>> & waveforms_group) const;
+        bool EnsureCorrectionTablesLoaded(int dev_id) const;
 
         static std::map<int, std::string> _name;
         // XXX -- NEEDED?
@@ -71,6 +149,11 @@ class CAENDT5742RawEvent2StdEventConverter: public eudaq::StdEventConverter {
         static std::map<int, std::map<int,int> > _npixels;
         // Human-readable name related with the internal DUT-id
         static std::map<int, std::map<std::string,int> > _dut_names_id;
+        static std::map<int, std::map<int, uint32_t> > _channel_dc_offset_dac;
+        static std::map<int, int> _post_trigger_size;
+        static std::map<int, std::string> _x742_correction_table_basepath;
+        static std::map<int, std::map<int, bool>> _x742_correction_table_loaded;
+        static std::map<int, std::map<int, CAEN_DGTZ_DRS4Correction_t>> _x742_correction_tables;
 };
 
 namespace {
@@ -91,6 +174,34 @@ std::map<int, std::map<int, PixelMap> > CAENDT5742RawEvent2StdEventConverter::_d
 std::map<int, std::map<int, std::array<int,2>> > CAENDT5742RawEvent2StdEventConverter::_nrows_ncolumns;
 std::map<int, std::map<int,int> > CAENDT5742RawEvent2StdEventConverter::_npixels;
 std::map<int, std::map<std::string,int> > CAENDT5742RawEvent2StdEventConverter::_dut_names_id;
+std::map<int, std::map<int, uint32_t> > CAENDT5742RawEvent2StdEventConverter::_channel_dc_offset_dac;
+std::map<int, int> CAENDT5742RawEvent2StdEventConverter::_post_trigger_size;
+std::map<int, std::string> CAENDT5742RawEvent2StdEventConverter::_x742_correction_table_basepath;
+std::map<int, std::map<int, bool>> CAENDT5742RawEvent2StdEventConverter::_x742_correction_table_loaded;
+std::map<int, std::map<int, CAEN_DGTZ_DRS4Correction_t>> CAENDT5742RawEvent2StdEventConverter::_x742_correction_tables;
+
+
+namespace {
+    std::map<int, uint32_t> ParseChannelDACMap(const std::string &text) {
+        std::map<int, uint32_t> result;
+        const std::regex re(R"(CH(\d+)\s*:\s*(\d+))");
+        for(std::sregex_iterator it(text.begin(), text.end(), re); it != std::sregex_iterator(); ++it) {
+            const std::smatch m = *it;
+            result[std::stoi(m[1].str())] = static_cast<uint32_t>(std::stoul(m[2].str()));
+        }
+        return result;
+    }
+
+    int ParseIntTagOrDefault(eudaq::EventSPC bore, const std::string &tag_name, int default_value) {
+        try {
+            return std::stoi(bore->GetTag(tag_name), nullptr, 0);
+        }
+        catch (...) {
+            return default_value;
+        }
+    }
+}
+
 
 void CAENDT5742RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, eudaq::ConfigurationSPC conf) const {
     
@@ -103,12 +214,35 @@ void CAENDT5742RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, euda
     // Name of the producer
     _name[device_id] = bore->GetTag("producer_name");
 
+    // XXX ==  OLD VERSION the name is giving the Serial Number
+    std::string serial;
+    if( bore->HasTag("serial_number") ) {
+        serial = bore->GetTag("serial_number");
+    } 
+    else {
+        serial = ResolveDigitizerSerialFromName(_name[device_id]);
+    }
+
+    if(serial.empty()) {
+        EUDAQ_ERROR("Unable to resolve DT5742 serial number from producer name '" + _name[device_id] + "'.");
+    }
+    else {
+        _x742_correction_table_basepath[device_id] = BuildCorrectionBasePath(serial);
+    }
+
     // XXX -- Identify the DUTS with the Channels
 
     // The record length
     _n_samples_per_waveform = std::stoi(bore->GetTag("n_samples_per_waveform"));
     // The sampling frequency
     _sampling_frequency_MHz = std::stoi(bore->GetTag("sampling_frequency_MHz"));
+    if( _sampling_frequency_MHz != 5000 ) {
+        EUDAQ_WARN("This converter is configured to use 5 GHz correction tables, but the BORE reports " +
+                   std::to_string(_sampling_frequency_MHz) + " MHz.");
+    }
+    // The channel offset
+    _channel_dc_offset_dac[device_id] = ParseChannelDACMap(bore->GetTag("channel_dc_offset_dac_map"));
+    _post_trigger_size[device_id] = ParseIntTagOrDefault(bore, "post_trigger_size", 50);
     
     // Get the list of DUTs so it can be extracted all channels and row-col mapping:
     std::string s( bore->GetTag("dut_names") );
@@ -159,13 +293,16 @@ void CAENDT5742RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, euda
         // Total number of pixels: Remember starting at 0, then 
        _npixels[device_id][dutname_id.second] = (nrow+1)*(ncol+1);
     }
+    
+    _x742_correction_table_loaded[device_id].clear();
 
-    // Extract the initial (hardcoded to 0) and the temporal step value of the waveforms
-    // --- in SECONDS
-    _t0[device_id] = 0.0;
-    // XXX FIXME TBD?
-    //_dt[device_id] = _n_samples_per_waveform/(_sampling_frequency_MHz)
+    // Reconstruct a consistent time axis. This mirrors the producer-side Python
+    // helper: the trigger position depends on the post-trigger percentage and the
+    // fast-trigger mode adds the documented trigger latency.
     _dt[device_id] = 1.00 / (_sampling_frequency_MHz * 1.0e6);
+    const double time_span = (_n_samples_per_waveform > 0 ? (_n_samples_per_waveform - 1) : 0) * _dt[device_id];
+    const double trigger_latency = 42e-9;
+    _t0[device_id] = -time_span * (100.0 - static_cast<double>(_post_trigger_size[device_id])) / 100.0 + trigger_latency;
 
     // Print-out the topology of the sensor and wire-bonding
     EUDAQ_INFO(" Defined DUTs in [" +_name[device_id]+ "] digitizer: ");
@@ -195,101 +332,133 @@ void CAENDT5742RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, euda
     EUDAQ_DEBUG(" Initialize:: Channel list (internal-ids): [ " + oss.str() +" ]");
 }
 
-
-// --- Auxiliary function to decode a 3 words block being each channel sample 
-void CAENDT5742RawEvent2StdEventConverter::waveforms_reassemble(uint32_t w0, uint32_t w1, uint32_t w2, std::vector<std::vector<float> > & waveforms) const {
-    // See CAEN User Manual data format. 
-    // Each three words contains the one sample (RDS4 cell) 
-    // for all enabled (?) channels. The info is store in 12bits
-    waveforms[0].push_back( static_cast<float>( (w0 >>  0) & 0xFFF) );
-    waveforms[1].push_back( static_cast<float>( (w0 >> 12) & 0xFFF) );
-    waveforms[2].push_back( static_cast<float>( ((w0 >> 24) & 0xFF) | ((w1 & 0xF) << 8) ) );
-    waveforms[3].push_back( static_cast<float>( (w1 >>  4) & 0xFFF ) );
-    waveforms[4].push_back( static_cast<float>( (w1 >> 16) & 0xFFF ) );
-    waveforms[5].push_back( static_cast<float>( ((w1 >> 28) & 0xF) | ((w2 & 0xFF) << 4) ) );
-    waveforms[6].push_back( static_cast<float>( (w2 >>  8) & 0xFFF ) );
-    waveforms[7].push_back( static_cast<float>( (w2 >> 20) & 0xFFF ) );
-}
-
-// --- Auxiliary function to decode a 3 words block of the TR0 digizited
-void CAENDT5742RawEvent2StdEventConverter::waveforms_reassemble(uint32_t w0, uint32_t w1, uint32_t w2, const size_t n_sample, std::vector<float> & tr0_wf) const {
-    // See CAEN User Manual data format. 
-    // This is the special case for the TRO digitization
-    tr0_wf[n_sample*8] = static_cast<float>( (w0 >>  0) & 0xFFF );
-    tr0_wf[n_sample*8 + 1] = static_cast<float>( (w0 >> 12) & 0xFFF );
-    tr0_wf[n_sample*8 + 2] = static_cast<float>( ((w0 >> 24) & 0xFF) | ((w1 & 0xF) << 8) );
-    tr0_wf[n_sample*8 + 3] = static_cast<float>( (w1 >>  4) & 0xFFF );
-    tr0_wf[n_sample*8 + 4] = static_cast<float>( (w1 >> 16) & 0xFFF );
-    tr0_wf[n_sample*8 + 5] = static_cast<float>( ((w1 >> 28) & 0xF) | ((w2 & 0xFF) << 4) );
-    tr0_wf[n_sample*8 + 6] = static_cast<float>( (w2 >>  8) & 0xFFF );
-    tr0_wf[n_sample*8 + 7] = static_cast<float>( (w2 >> 20) & 0xFFF );
-}
-
-
 // FIXME -- Calculate it once: use a memoizer
-int CAENDT5742RawEvent2StdEventConverter::PolarityWF(const std::vector<float> & wf) const {
-    // Extract polarity -- XXX-- Just do it once ? -- then, TODO
-    auto itminmax = std::minmax_element(wf.begin(), wf.end());
-    const float min = *itminmax.first;
-    const float max = *itminmax.second;
-    if( std::abs(*itminmax.first) > std::abs(*itminmax.second) ) {
-        return -1;
+int CAENDT5742RawEvent2StdEventConverter::PolarityWF(const std::vector<double> & wf) const {
+    if (wf.empty()) {
+        return 1;
     }
-    return 1;
+    const double baseline = Median(wf);
+    const auto itminmax = std::minmax_element(wf.begin(), wf.end());
+    const double min_dev = *itminmax.first - baseline;
+    const double max_dev = *itminmax.second - baseline;
+    return (std::abs(min_dev) > std::abs(max_dev)) ? -1 : 1;
 }
 
-
-float CAENDT5742RawEvent2StdEventConverter::AmplitudeWF(const std::vector<float>& waveform) const {
-    // Rough estimation of the baseline using the median
-    // But first use the right polarity to be sure we sort properly
-    const int polarity = PolarityWF(waveform); 
-    std::vector<float> wf_abs(waveform);
-    for(float & v: wf_abs) {
-        v *= polarity;
-    }
-    //
-    // All signals are now positives
-    // -----------------------------
-
-    // Sorted: smaller firts
-    std::sort(wf_abs.begin(), wf_abs.end());
-    const size_t wfsize = wf_abs.size();
-    if(wfsize == 0) {
-        return 0.0;
+float CAENDT5742RawEvent2StdEventConverter::AmplitudeWF(const std::vector<double>& waveform) const {
+    if (waveform.empty()) {
+        return 0.0f;
     }
 
-    double baseline = 0;
-    if(wfsize % 2 == 0) {
-        // If even, we need to obtain the average of the two central values
-        baseline = (wf_abs[wfsize/2 - 1]+wf_abs[wfsize/2])/2.0;
-    } 
-    else {
-        baseline = wf_abs[wfsize/2];
+    const double baseline = Median(waveform);
+    std::vector<double> abs_dev;
+    abs_dev.reserve(waveform.size());
+    for (double v : waveform) {
+        abs_dev.push_back(std::abs(v - baseline));
     }
-    // We need to evaluate a kind of sigma, to get an estimation
-    // if there is a signal there
-    const double wf_amplitude_max = wf_abs[wfsize-1];
+    const double mad = Median(abs_dev);
+    const double robust_sigma = (mad > 0.0) ? 1.4826 * mad : 0.0;
 
-    // --> Calculate the deviation standard -- XXX - ?
-    const double mean = std::accumulate(wf_abs.begin(), wf_abs.end(),0.0)/wfsize;
-    auto sum_term = [mean](double init, double value)-> double { return init + (value - mean)*(value - mean); };
-    const double variance = std::accumulate(wf_abs.begin(), wf_abs.end(), 0.0, sum_term);
-    const double stddev = std::sqrt(variance/wfsize);
-    
-    // Assume 3 sigma to be signal
-    if( wf_amplitude_max > 3.0*(baseline + stddev) ) {
-        return wf_amplitude_max*polarity;
+    const auto itminmax = std::minmax_element(waveform.begin(), waveform.end());
+    const double min_dev = *itminmax.first - baseline;
+    const double max_dev = *itminmax.second - baseline;
+    const double peak = (std::abs(min_dev) > std::abs(max_dev)) ? min_dev : max_dev;
+
+    if (robust_sigma > 0.0 && std::abs(peak) < 3.0 * robust_sigma) {
+        return 0.0f;
     }
-
-    return 0.0;
+    return static_cast<float>(peak);
 }
 
+bool CAENDT5742RawEvent2StdEventConverter::EnsureCorrectionTablesLoaded(int dev_id) const {
+    const std::string &basepath = _x742_correction_table_basepath[dev_id];
+    if(basepath.empty()) {
+        EUDAQ_ERROR("No DT5742 correction-table base path available for device " + std::to_string(dev_id) + ".");
+        return false;
+    }
 
+    for(int group_id = 0; group_id < 2; ++group_id) {
+        auto &loaded = _x742_correction_table_loaded[dev_id][group_id];
+        if(loaded) {
+            continue;
+        }
+        const std::string grouped_basepath = GroupedBasePath(basepath, group_id);
+        std::memset(&_x742_correction_tables[dev_id][group_id], 0, sizeof(CAEN_DGTZ_DRS4Correction_t));
+        const int rc = LoadCorrectionTable(const_cast<char *>(grouped_basepath.c_str()),
+                                           &_x742_correction_tables[dev_id][group_id]);
+        if(rc != 0) {
+            EUDAQ_ERROR("Failed to load offline x742 correction table for dev " +
+                        std::to_string(dev_id) + ", group " + std::to_string(group_id) +
+                        " from base path '" + grouped_basepath + "' (LoadCorrectionTable rc=" +
+                        std::to_string(rc) + ").");
+            return false;
+        }
+        loaded = true;
+    }
+    return true;
+}
+
+bool CAENDT5742RawEvent2StdEventConverter::DecodeRawEvent(
+        const int dev_id, const std::vector<uint8_t> & raw,
+        std::map<size_t, std::vector<std::vector<float>>> & waveforms_group) const {
+    // Apply all corrections
+    const int kX742CorrectionLevelMask = 0x7;
+    // Check the tables are properly loaded
+    if(!EnsureCorrectionTablesLoaded(dev_id)) {
+        return false;
+    }
+
+    uint32_t num_events = 0;
+    int32_t rc = GetNumEvents(reinterpret_cast<char*>(const_cast<uint8_t*>(raw.data())), static_cast<uint32_t>(raw.size()), &num_events);
+    if(rc != 0 || num_events == 0) {
+        EUDAQ_ERROR("Offline GetNumEvents failed with rc=" + std::to_string(rc) + ", num_events=" + std::to_string(num_events));
+        return false;
+    }
+    if(num_events != 1) {
+        EUDAQ_WARN("Offline x742 decoder saw " + std::to_string(num_events) + " events in a single EUDAQ block. Only the first event will be used.");
+    }
+
+    char *evt_ptr = nullptr;
+    rc = GetEventPtr(reinterpret_cast<char*>(const_cast<uint8_t*>(raw.data())), static_cast<uint32_t>(raw.size()), 0, &evt_ptr);
+    if(rc != 0 || evt_ptr == nullptr) {
+        EUDAQ_ERROR("Offline GetEventPtr failed with rc=" + std::to_string(rc));
+        return false;
+    }
+
+    void *evt_void = nullptr;
+    rc = X742_DecodeEvent(evt_ptr, &evt_void);
+    if(rc != 0 || evt_void == nullptr) {
+        EUDAQ_ERROR("Offline X742_DecodeEvent failed with rc=" + std::to_string(rc));
+        return false;
+    }
+
+    auto *evt = reinterpret_cast<CAEN_DGTZ_X742_EVENT_t *>(evt_void);
+    const CAEN_DGTZ_DRS4Frequency_t correction_frequency = CAEN_DGTZ_DRS4_5GHz;
+    for(size_t group_id = 0; group_id < 2; ++group_id) {
+        if(evt->GrPresent[group_id] != 1) {
+            continue;
+        }
+        auto &group = evt->DataGroup[group_id];
+        ApplyDataCorrection(&_x742_correction_tables[dev_id][static_cast<int>(group_id)], correction_frequency, kX742CorrectionLevelMask, &group);
+
+        std::vector<std::vector<float>> waveforms(9);
+        for(size_t ch = 0; ch < 9; ++ch) {
+            const uint32_t n = group.ChSize[ch];
+            if(group.DataChannel[ch] == nullptr || n == 0) {
+                continue;
+            }
+            waveforms[ch].assign(group.DataChannel[ch], group.DataChannel[ch] + n);
+        }
+        waveforms_group[group_id] = std::move(waveforms);
+    }
+
+    FreeDecodedX742Event(evt);
+    return !waveforms_group.empty();
+}
 
 bool CAENDT5742RawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq::StdEventSP d2, eudaq::ConfigSPC conf) const {
 
     auto event = std::dynamic_pointer_cast<const eudaq::RawDataEvent>(d1);
-    if (event == nullptr) {
+    if(event == nullptr) {
         EUDAQ_ERROR("Received null event.");
         return false;
     }
@@ -344,115 +513,9 @@ bool CAENDT5742RawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq:
         return false;
     }
     
-    const uint32_t group_present  = raw_event[1] & 0x3; 
-    const uint32_t event_counter  = raw_event[2] & 0xFFFFFF;
-    const uint32_t event_time_tag = raw_event[3];
-
-    // Loop over all groups/channels [It could be 2 groups, each with 8 channels)
-    // Processed event header (4 words)
-    size_t offset = 4;
-    std::map<size_t, std::vector<std::vector<float> >> waveforms_group;
-
-    for(size_t group_id = 0; group_id < 2; ++group_id) {
-        // Check whether the group is present in the event
-        if( ((group_present >> group_id) & 0x1) == 0 ) {
-            continue;
-        }
-        if( offset >= raw_event.size() ) {
-            EUDAQ_ERROR("[GROUP- " + std::to_string(group_id) + "] Malformed CAEN raw event: unexpected end of data while reading group header");
-            return false;
-        }
-
-        // Group header (next word)
-        const uint32_t group_header = raw_event[offset++];
-
-        // Number of 32-bit words to read for this group (excluding the 4-word global header)
-        const uint32_t ch0_7_words = group_header & 0xFFF;
-        // Is TR0 present? [bit-12]
-        const size_t is_tr0_present = (group_header >> 12) &  0x1;
-        // 3 words encode 8 samples (1 per channel)
-        const size_t sample_steps = ch0_7_words / 3;
-        if( (ch0_7_words % 3) != 0 ) {
-            EUDAQ_ERROR("[GROUP- " + std::to_string(group_id) + "] Size CH0...7=" + std::to_string(ch0_7_words) + " not divisible by 3");
-            return false;
-        }
-        const size_t N = _n_samples_per_waveform;
-        const size_t expected_ch0_7_words = 3 * N;
-        // Cross-check against configured record length
-        if( ch0_7_words != expected_ch0_7_words ) {
-            EUDAQ_WARN("[GROUP- " + std::to_string(group_id) + ": Sixe CH0..7=" + 
-                    std::to_string(ch0_7_words) + " but expected 3*N=" + 
-                    std::to_string(expected_ch0_7_words) + " (N=" + std::to_string(N) + ")");
-        }
-
-        // Pre-allocate waveforms: 8 channels per group (Channels 0 to 7 of this group) + TR0
-        std::vector<std::vector<float>> waveforms(9);
-        waveforms.reserve(9);
-
-        // Safety check: ensure we don't read past the buffer
-        const size_t words_needed = sample_steps * 3;
-        if( offset + words_needed > raw_event.size() ) {
-            EUDAQ_ERROR("[GROUP- " + std::to_string(group_id) + "] Malformed CAEN raw event: not enough words for group " + std::to_string(group_id) +
-                    " (need: " + std::to_string(words_needed) + ", have " +
-                    std::to_string(raw_event.size() - offset) + ").");
-            return false;
-        }
-
-        for(size_t i = 0; i < sample_steps; ++i) {
-            const uint32_t w0 = raw_event[offset++];
-            const uint32_t w1 = raw_event[offset++];
-            const uint32_t w2 = raw_event[offset++];
-            waveforms_reassemble(w0, w1, w2, waveforms);
-        }
-
-        // Optional TR0 if present -- XXX Maybe not optional at all...
-        size_t size_tr0_words = 0;
-        if( is_tr0_present ) {
-            // The TRO is in the last words of the group. Each sample is 12bits and
-            // there are _n_samples_per_waveform samples ()
-            size_tr0_words = ch0_7_words / 8;
-            if( (size_tr0_words % 3) != 0 ) {
-                EUDAQ_ERROR("[GROUP- " + std::to_string(group_id) + "] Size TR0 =" + std::to_string(ch0_7_words) + " not divisible by 3");
-                return false;
-            }
-            const size_t sample_steps_tr0 = size_tr0_words / 3;
-            // Safety check: ensure we don't read past the buffer
-            if( offset + size_tr0_words > raw_event.size() ) {
-                EUDAQ_ERROR("[GROUP- " + std::to_string(group_id) + "] Malformed CAEN raw event: not enough words for TR0 of group " + std::to_string(group_id) +
-                        " (need: " + std::to_string(size_tr0_words) + ", have " +
-                        std::to_string(raw_event.size() - offset) + ").");
-                return false;
-            }
-            // Samples are consecutives now (but as 12-bits per sample, we need to 
-            // unpack 3-words to obtain 8 complete samples: 32x3/12 = 8, note 
-            // some samples are split between two words, as the regular channel case)
-            waveforms[8].resize(_n_samples_per_waveform);
-
-            for( size_t i = 0; i < sample_steps_tr0; ++i) {
-                const uint32_t w0 = raw_event[offset++];
-                const uint32_t w1 = raw_event[offset++];
-                const uint32_t w2 = raw_event[offset++];
-                waveforms_reassemble(w0, w1, w2, i, waveforms[8]) ;
-            }
-        }
-
-        waveforms_group[group_id] = std::move(waveforms);
-
-        if( offset > raw_event.size() ) {
-            EUDAQ_ERROR("[GROUP- " + std::to_string(group_id) + "] Missing Group Trigger Time Tag word");
-            return false;
-        }
-        // Group Trigger Time Tag (already have it? XXX)
-        const uint32_t group_ttt_word = raw_event[offset++];
-        // The 30 bit value (in 8.5 ns steps)
-        const uint32_t group_ttt_value = group_ttt_word & 0x3FFFFFFF; 
-    }
-    // All channels are extracted (from all enabled groups)
-    
-    // XXX needed
-    if( offset != total_words ) {
-        EUDAQ_ERROR("Parsing ended at offset=" + std::to_string(offset) +
-                " words, but TOTAL_EVENT_SIZE=" + std::to_string(total_words));
+    std::map<size_t, std::vector<std::vector<float>>> waveforms_group;
+    const bool decoded_offline = DecodeRawEvent(dev_id, raw, waveforms_group);
+    if(!decoded_offline) {
         return false;
     }
 
@@ -488,29 +551,35 @@ bool CAENDT5742RawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq:
                 continue;
             }
             const std::vector<float> & waveform_float = it_group->second.at(channel_inside_group);
-            
-            // XXX -- Make this sense? Just to avoid crashing... [PROV]
-            if(waveform_float.size() == 0)
-            {
-                //++pixid;
+            if(waveform_float.empty()) {
                 continue;
             }
-            
-            // Each channel is wirebonded to the the list of pixels, assign
-            // same amplitude and waveform for all the belonging pixels
 
-            // XXX -- Is this what we want? Or maybe extract the integral? 
-            //        for sure we'd like to get the rise time as well?
-            float amplitude = AmplitudeWF(waveform_float);
-
+            // Vpp is 1.0 V in DT5742
+            const double Vpp = 1.0;
+            uint32_t dc_offset_dac = 32768u;
+            if (channel <= 15) {
+                auto it_dac = _channel_dc_offset_dac[dev_id].find(static_cast<int>(channel));
+                if (it_dac != _channel_dc_offset_dac[dev_id].end()) {
+                    dc_offset_dac = it_dac->second;
+                }
+            }
+            const double dc_offset_volts = DACToBaselineVolts(dc_offset_dac, Vpp);
             std::vector<double> wf_adc(waveform_float.begin(), waveform_float.end());
-            // Voffset - 0.0, Vpp  = 1.0
-            std::vector<double> wf = ADC12ToVolts(wf_adc, 0.0, 1.0);
+            // From ADC to Volts
+            std::vector<double> wf = ADC12ToVolts(wf_adc, dc_offset_volts, Vpp);
+
+            float amplitude = AmplitudeWF(wf);
             
             for(const auto & pixel: ch_rowcollist.second) {
                 // Note the signature introduce x,y -> col, row. Opposite to which we store
+                // Amplitude as charge? It would be better a ToT or something similar
                 plane.PushPixel(pixel[1], pixel[0], amplitude, uint32_t(0));
-                plane.SetPixelAuxInfo(pixid, dutname_sensorid.first+":CH"+std::to_string(ch_rowcollist.first)+":col"+std::to_string(pixel[1])+":row"+std::to_string(pixel[0]));
+                plane.SetPixelAuxInfo(pixid, 
+                        dutname_sensorid.first+":CH"+
+                            std::to_string(ch_rowcollist.first)+
+                            ":col"+std::to_string(pixel[1])+":row"+
+                            std::to_string(pixel[0]));
                 plane.SetWaveform(pixid, wf, _t0[dev_id], _dt[dev_id] );
                 ++pixid;
             }

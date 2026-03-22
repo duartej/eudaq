@@ -50,6 +50,11 @@ target_link_libraries(caen_x742_routines PUBLIC
 
 add_library(${EUDAQ_MODULE} SHARED ${MODULE_SRC})
 
+# The correction tables for decoding
+target_compile_definitions(${EUDAQ_MODULE} PRIVATE
+  CAEN_DT5742_CORRECTION_TABLES_DIR="${CMAKE_CURRENT_LIST_DIR}/../misc/CorrectionTables"
+)
+
 target_include_directories(${EUDAQ_MODULE} PRIVATE
     include
     "${CAEN_DIGITIZER_INCLUDE_DIR}"
