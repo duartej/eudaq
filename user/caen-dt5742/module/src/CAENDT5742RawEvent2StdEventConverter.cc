@@ -207,6 +207,17 @@ void CAENDT5742RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, euda
     
     const int device_id = bore->GetDeviceN();
     
+    _name.erase(device_id);
+    _t0.erase(device_id);
+    _dt.erase(device_id);
+    _x742_correction_table_basepath.erase(device_id);
+    _x742_correction_table_loaded.erase(device_id);
+    _dut_names_id.erase(device_id);
+    _dut_channel_list.erase(device_id);
+    _dut_channel_arrangement.erase(device_id);
+    _nrows_ncolumns.erase(device_id);
+    _npixels.erase(device_id);
+
     // How many times are initializing = Digitizers present in the event
     // FIXME -- Use the DeviceN id?
     ++_n_digitizers;
@@ -293,8 +304,6 @@ void CAENDT5742RawEvent2StdEventConverter::Initialize(eudaq::EventSPC bore, euda
         // Total number of pixels: Remember starting at 0, then 
        _npixels[device_id][dutname_id.second] = (nrow+1)*(ncol+1);
     }
-    
-    _x742_correction_table_loaded[device_id].clear();
 
     // Reconstruct a consistent time axis. This mirrors the producer-side Python
     // helper: the trigger position depends on the post-trigger percentage and the
