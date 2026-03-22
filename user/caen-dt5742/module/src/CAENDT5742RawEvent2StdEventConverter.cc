@@ -511,13 +511,14 @@ bool CAENDT5742RawEvent2StdEventConverter::Converting(eudaq::EventSPC d1, eudaq:
         return false;
     }
     // The raw event in 32-bit words
-    std::vector<uint32_t> raw_event(raw.size() / 4);
-    std::memcpy(raw_event.data(), raw.data(), raw.size());
+    uint32_t first_word = 0;
+    std::memcpy(&first_word, raw.data(), sizeof(uint32_t));
     // Get the size of the event --> To cross-check ?? 
-    const size_t total_words = static_cast<size_t>(raw_event[0] & 0x0FFFFFFF);
-    if( total_words != raw_event.size() ) {
+    const size_t total_words = static_cast<size_t>(first_word & 0x0FFFFFFF);
+    const size_t block_words = raw.size() / 4;
+    if( total_words != block_words ) {
         EUDAQ_ERROR("Raw event size mismatch: header says " + std::to_string(total_words) +
-                " words, but block contains " + std::to_string(raw_event.size()) + " words.");
+                " words, but block contains " + std::to_string(block_words) + " words.");
         // -- XXX or return true for skipping this ? 
         return false;
     }
