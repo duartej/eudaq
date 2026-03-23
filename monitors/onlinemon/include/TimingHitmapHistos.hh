@@ -12,6 +12,7 @@
 #include <TH2F.h>
 #include <TH2D.h>
 #include <TH1F.h>
+#include <TProfile.h>
 #include <TFile.h>
 
 #include "SimpleStandardEvent.hh"
@@ -40,9 +41,11 @@ class TimingHitmapHistos {
         std::map<int, TH1F*> _minsignal;
         std::map<int, TH1F*> _amplitude;
         std::map<int, TH1F*> _baseline;
+        std::map<int, TH1F*> _noise;
+        std::map<int, TH1F*> _snr;
         // TH1F* _toa;
         // ???
-        std::map<int,TH1F*> _waveforms;
+        std::map<int,TProfile*> _waveforms;
         std::map<int,TH2F*> _waveforms_not_filtered;
         std::map<int,TH2F*> _time_minwaveform;
     
@@ -55,17 +58,21 @@ class TimingHitmapHistos {
         void Calculate(const int currentEventNum);
         void Write();
 
-        std::pair<double,double> getBaselineAndAmplitude(const std::vector<double> & wf);
 
+        std::pair<double,double> getBaselineAndAmplitude(const std::vector<double> & wf);
         TH2I* GetOccupancymapHisto() { return _occupancy_map; }
         TH2I* GetChannelmapHisto() { return _channel_map; }
         TH1F* GetAmplitudemapHisto(unsigned int pixel_id) { return _amplitude[pixel_id]; }
+        TH1F* GetNoisemapHisto(unsigned int pixel_id) { return _noise[pixel_id]; }
+        TH1F* GetSNRmapHisto(unsigned int pixel_id) { return _snr[pixel_id]; }
         TH1F* GetSignalmapHisto(unsigned int pixel_id) { return _signal[pixel_id]; }
         TH1F* GetMinSignalmapHisto(unsigned int pixel_id) { return _minsignal[pixel_id]; }
         TH1F* GetBaselineHisto(unsigned int pixel_id) { return _baseline[pixel_id]; }
+        TH1F* GetNoiseHisto(unsigned int pixel_id) { return _noise[pixel_id]; }
+        TH1F* GetSNRHisto(unsigned int pixel_id) { return _snr[pixel_id]; }
         // Per pixel
         //TH2F * getWaveformHisto(unsigned int pixel_id) { return _waveforms[pixel_id]; }
-        TH1F * getWaveformHisto(unsigned int pixel_id) { return _waveforms[pixel_id]; }
+        TProfile * getWaveformHisto(unsigned int pixel_id) { return _waveforms[pixel_id]; }
         TH2F * getUnfilteredWaveformHisto(unsigned int pixel_id) { return _waveforms_not_filtered[pixel_id]; }
         TH2F * getTimeMinWaveformHisto(unsigned int pixel_id) { return _time_minwaveform[pixel_id]; }
         

@@ -336,11 +336,8 @@ void HitmapHistos::Fill(const SimpleStandardHit &hit) {
   // FIXME -- Not always, one each 1000 or so?
   if( is_CAENDT5742 ) { //&& (FILLED_WF % 500) == 0 ) {
       const std::vector<double> wf = hit.getWaveform();
-      const float dt = hit.getWaveformDX();
-      std::vector<double> t;
       std::vector<double> _s;
-      for(size_t _k = hit.getWaveformX0(); _k < wf.size(); ++_k) {
-          t.push_back( _k*dt );
+      for(size_t _k = 0; _k < wf.size(); ++_k) {
           _s.push_back(_k);
       }
       const unsigned int pixid = pixel_x * _maxY + pixel_y;

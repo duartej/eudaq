@@ -164,19 +164,19 @@ void TimingHitmapCollection::registerPlane(const SimpleStandardPlane &p) {
 
             const std::string fullname = dutname+":"+channel;
             // The signal per event and sampling
-            std::string histoname = sensor+"/"+dutname+"/Signal/Pixel " + 
+            std::string histoname = sensor+"/"+dutname+"/WfSamples1D/Pixel " + 
                 std::to_string(col) + "," + std::to_string(row);
             _mon->getOnlineMon()->registerTreeItem(histoname);
             _mon->getOnlineMon()->registerHisto(histoname,
                     getTimingHitmapHistos(sensor,sensor_id)->GetSignalmapHisto(pixid));
-            _mon->getOnlineMon()->makeTreeItemSummary(sensor+"/"+dutname+"/Signal");
+            _mon->getOnlineMon()->makeTreeItemSummary(sensor+"/"+dutname+"/WfSamples1D");
             // Waveform minimum value
-            histoname = sensor+"/"+dutname+"/MinumumSignal/Pixel " + 
+            histoname = sensor+"/"+dutname+"/SignalPeak/Pixel " + 
                 std::to_string(col) + "," + std::to_string(row);
             _mon->getOnlineMon()->registerTreeItem(histoname);
             _mon->getOnlineMon()->registerHisto(histoname,
                     getTimingHitmapHistos(sensor,sensor_id)->GetMinSignalmapHisto(pixid));
-            _mon->getOnlineMon()->makeTreeItemSummary(sensor+"/"+dutname+"/MinimumSignal");
+            _mon->getOnlineMon()->makeTreeItemSummary(sensor+"/"+dutname+"/SignalPeak");
             // Some estimations
             histoname = sensor+"/"+dutname+"/Baseline/Pixel " + 
                 std::to_string(col) + "," + std::to_string(row);
@@ -191,6 +191,20 @@ void TimingHitmapCollection::registerPlane(const SimpleStandardPlane &p) {
             _mon->getOnlineMon()->registerHisto(histoname,
                     getTimingHitmapHistos(sensor,sensor_id)->GetAmplitudemapHisto(pixid));
             _mon->getOnlineMon()->makeTreeItemSummary(sensor+"/"+dutname+"/Amplitudes");
+            // Noise
+            histoname = sensor+"/"+dutname+"/Noise/Pixel " + 
+                std::to_string(col) + "," + std::to_string(row);
+            _mon->getOnlineMon()->registerTreeItem(histoname);
+            _mon->getOnlineMon()->registerHisto(histoname,
+                    getTimingHitmapHistos(sensor,sensor_id)->GetNoisemapHisto(pixid));
+            _mon->getOnlineMon()->makeTreeItemSummary(sensor+"/"+dutname+"/Noise");
+            // Signal to Noise (Signal=Amplitude)
+            histoname = sensor+"/"+dutname+"/SNR/Pixel " + 
+                std::to_string(col) + "," + std::to_string(row);
+            _mon->getOnlineMon()->registerTreeItem(histoname);
+            _mon->getOnlineMon()->registerHisto(histoname,
+                    getTimingHitmapHistos(sensor,sensor_id)->GetSNRmapHisto(pixid));
+            _mon->getOnlineMon()->makeTreeItemSummary(sensor+"/"+dutname+"/SNR");
             // Unfiltered waveforms (all events)
             histoname = sensor+"/"+dutname+"/Unfiltered_Waveforms/Pixel " + 
                 std::to_string(col) + "," + std::to_string(row);
