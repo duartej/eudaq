@@ -6,7 +6,7 @@ aux_source_directory(src MODULE_SRC)
 # CAEN x742 offline correction / decode helper sources shipped with CAENDigitizer
 # -----------------------------------------------------------------------------
 set(CAEN_DIGITIZER_ROOT "${CMAKE_CURRENT_LIST_DIR}/../extern/CAENDigitizer-v2.17.3")
-set(CAEN_X742_SAMPLE_DIR "${CAEN_CURRENT_LIST_DIR}/../misc/x742_DataCorrection")
+set(CAEN_X742_SAMPLE_DIR "${CMAKE_CURRENT_LIST_DIR}/../misc/x742_DataCorrection")
 set(CAEN_DIGITIZER_INCLUDE_DIR "${CAEN_DIGITIZER_ROOT}/include")
 
 find_library(CAENDIGITIZER_LIBRARY
