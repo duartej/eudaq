@@ -170,6 +170,7 @@ class CAENDT5742Producer(pyeudaq.Producer):
         event.SetTag('sampling_frequency_MHz', repr(self._digitizer.get_sampling_frequency()))
         # Number of samples per waveform to decode the raw data.
         event.SetTag('n_samples_per_waveform', repr(self._digitizer.get_record_length()))
+        event.SetTag('digitizer_serial_number', repr(self._digitizer_info['SerialNumber']))
         n_dut = 0
         for dut_name, dut_channels in self.channels_mapping.items():
             dut_label = f'DUT_{n_dut}' # DUT_0, DUT_1, ...
@@ -220,10 +221,10 @@ class CAENDT5742Producer(pyeudaq.Producer):
                     try:
                         _ = self._raw_queue.get_nowait()
                         self._raw_queue.task_done()
-                    except queue.Emtpy:
+                    except queue.Empty:
                         pass
                     try:
-                        self._raw_queue.put((int(evt_counter), int(ttt), raw_Evt), block=False)
+                        self._raw_queue.put((int(evt_counter), int(ttt), raw_evt), block=False)
                     except queue.Full:
                         # Still full: drop this event
                         pass
@@ -333,6 +334,8 @@ class CAENDT5742Producer(pyeudaq.Producer):
         EUDAQ_INFO(f'The mapping of the channels was set to this: {self.channels_mapping}')
         
         self.set_of_active_channels = set([ch for DUT_name in self.channels_mapping for ch in self.channels_mapping[DUT_name]])
+
+        self._channel_dc_offset_dac = {}
         
         # Manual configuration of parameters:
         for ch in [0,1]:
@@ -355,7 +358,9 @@ class CAENDT5742Producer(pyeudaq.Producer):
         # So far, just force negative pulses
         DC_OFFSET = 0x600F
         for ch in filter(lambda _channel: _channel.find('trigger_') == -1, self.set_of_active_channels):
-            self._digitizer.set_channel_DC_offset(int(ch.strip('CH')), DC_OFFSET)
+            ch_id = int(ch.strip('CH'))
+            self._digitizer.set_channel_DC_offset(ch_id, DC_OFFSET)
+            self._channel_dc_offset_dac[ch_id] = DC_OFFSET
         EUDAQ_INFO(f'Set OFFSET channel (except for trigger) to {hex(DC_OFFSET)}')
         ### XXX - FIXME to bew configurable
         
