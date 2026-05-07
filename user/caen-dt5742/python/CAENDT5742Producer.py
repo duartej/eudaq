@@ -170,7 +170,7 @@ class CAENDT5742Producer(pyeudaq.Producer):
         event.SetTag('sampling_frequency_MHz', repr(self._digitizer.get_sampling_frequency()))
         # Number of samples per waveform to decode the raw data.
         event.SetTag('n_samples_per_waveform', repr(self._digitizer.get_record_length()))
-        event.SetTag('digitizer_serial_number', repr(self._digitizer_info['SerialNumber']))
+        event.SetTag('digitizer_serial_number', repr(self._digitizer.get_info['SerialNumber']))
         n_dut = 0
         for dut_name, dut_channels in self.channels_mapping.items():
             dut_label = f'DUT_{n_dut}' # DUT_0, DUT_1, ...
